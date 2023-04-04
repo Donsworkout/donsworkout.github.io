@@ -1,0 +1,937 @@
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title><![CDATA[Donsdev blog]]></title><description><![CDATA[Donsdev blog]]></description><link>http://github.com/dylang/node-rss</link><generator>GatsbyJS</generator><lastBuildDate>Tue, 04 Apr 2023 09:34:50 GMT</lastBuildDate><item><title><![CDATA[다량의 데이터 조회 시 리플렉션을 이용한 역직렬화 성능]]></title><description><![CDATA[리플렉션 도입은 신중히 고려해야 한다, 특히 처리할 데이터가 많을때]]></description><link>https://donsworkout.github.io/posts/reflection-performance</link><guid isPermaLink="false">https://donsworkout.github.io/posts/reflection-performance</guid><pubDate>Tue, 04 Apr 2023 18:00:32 GMT</pubDate><content:encoded>&lt;p&gt;얼마 전 맡아 개발한 API 쪽에서 1000건 이상의 데이터 동시 요청 시,&lt;br&gt;
+Slow Query 가 발생한 것도 아닌데 응답이 느려지고 한 pod 에서 CPU 가 spike 를 쳤던 현상이 있었습니다.&lt;/p&gt;
+&lt;p&gt;한 pod 에서만 해당 현상이 발생하였는데 빠르게 발견하고 대응하여 장애로 이어지지는 않았지만, 원인을 파악하는데 애 좀 먹었습니다.&lt;/p&gt;
+&lt;h2 id=&quot;1-상황-설명&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#1-%EC%83%81%ED%99%A9-%EC%84%A4%EB%AA%85&quot; aria-label=&quot;1 상황 설명 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;1. 상황 설명&lt;/h2&gt;
+&lt;h3 id=&quot;1-목록-조회성-api-전체-지연-발생&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#1-%EB%AA%A9%EB%A1%9D-%EC%A1%B0%ED%9A%8C%EC%84%B1-api-%EC%A0%84%EC%B2%B4-%EC%A7%80%EC%97%B0-%EB%B0%9C%EC%83%9D&quot; aria-label=&quot;1 목록 조회성 api 전체 지연 발생 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;(1) 목록 조회성 API 전체 지연 발생&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;데이터 목록 내려주는 API&lt;/li&gt;
+&lt;li&gt;목록을 집계해서 내려주는 API&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3 id=&quot;2-pod-1개가-cpu-100-도달&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#2-pod-1%EA%B0%9C%EA%B0%80-cpu-100-%EB%8F%84%EB%8B%AC&quot; aria-label=&quot;2 pod 1개가 cpu 100 도달 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;(2) Pod 1개가 CPU 100% 도달&lt;/h3&gt;
+&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; &quot;
+    &gt;
+      &lt;a
+    class=&quot;gatsby-resp-image-link&quot;
+    href=&quot;/static/4a4f7e951f831018f1ae85958da4ccbe/1acf3/pod1.png&quot;
+    style=&quot;display: block&quot;
+    target=&quot;_blank&quot;
+    rel=&quot;noopener&quot;
+  &gt;
+    &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 43.333333333333336%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAJCAYAAAAywQxIAAAACXBIWXMAAAsTAAALEwEAmpwYAAABX0lEQVQoz02SiW7EIAxE8/9f2mQJYG7MMZWd7nYtWUSMDZ4XDusciAhzLuwNXXtntNbgnMOcE+9Ya4GZUUpRTfrkW0Lqeu84UorYsrE21n5SIucM5wg5D9Q6UMuzStz3jRAi5txYa38u3HvjMMYiZ0YtjF4ZrXYVjTHauOYCjwlmmeA58Lou3MbpJTn1J3NXB4dzHrclLbitB1FArRVjjD9bAd57eCLEGNVWSkn3ZEpxYa1HDFExHa13UMiIISPXjv3HSZi01uEpI4Si2ppTNVlra7htQKCM0vjD9zjPE8z9i8MjiF3Jb02a5CJrrSJJMWr9+6fogTK+BPPCGAL5aRROYltijEcbc3/4it1H2+Cx8X4Mx8/PiRgLyMdPCkOZXBjGmEGU4F3QZB464Xle8JTgfISzwvnhe+RcYO6A12VhKahFgavvrVZcLw/zcrAkDQ2dGdw7cqkwN6nmwr/2C4oFuxSmq6N3AAAAAElFTkSuQmCC&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/4a4f7e951f831018f1ae85958da4ccbe/8ac56/pod1.webp 240w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/d3be9/pod1.webp 480w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/e46b2/pod1.webp 960w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/f992d/pod1.webp 1440w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/50d93/pod1.webp 1596w&quot;
+              sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/4a4f7e951f831018f1ae85958da4ccbe/8ff5a/pod1.png 240w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/e85cb/pod1.png 480w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/d9199/pod1.png 960w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/07a9c/pod1.png 1440w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/1acf3/pod1.png 1596w&quot;
+            sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/4a4f7e951f831018f1ae85958da4ccbe/d9199/pod1.png&quot;
+            alt=&quot;pod status&quot;
+            title=&quot;pod status&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+  &lt;/a&gt;
+    &lt;/span&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;17시 19분 경 한개 pod 이 CPU 쓰로틀링이 걸리며 성능 저하 발생&lt;/li&gt;
+&lt;li&gt;한 pod 이 사용량이 높아졌지만 pods 간 평균 사용량이 오토 스케일링 생성 기준 임계치(1.5코어) 에 닿지 않아 수평 오토스케일링이 이뤄지지 않음&lt;/li&gt;
+&lt;li&gt;문제 pod 인위적으로 삭제하고 replica pods 을 늘리고 나서야 지연 해소&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id=&quot;2-장애-원인-분석&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#2-%EC%9E%A5%EC%95%A0-%EC%9B%90%EC%9D%B8-%EB%B6%84%EC%84%9D&quot; aria-label=&quot;2 장애 원인 분석 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;2. 장애 원인 분석&lt;/h2&gt;
+&lt;h3 id=&quot;q-어떤-상황에서-cpu-spike-와-성능-저하가-발생하거나-재현-되는가&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#q-%EC%96%B4%EB%96%A4-%EC%83%81%ED%99%A9%EC%97%90%EC%84%9C-cpu-spike-%EC%99%80-%EC%84%B1%EB%8A%A5-%EC%A0%80%ED%95%98%EA%B0%80-%EB%B0%9C%EC%83%9D%ED%95%98%EA%B1%B0%EB%82%98-%EC%9E%AC%ED%98%84-%EB%90%98%EB%8A%94%EA%B0%80&quot; aria-label=&quot;q 어떤 상황에서 cpu spike 와 성능 저하가 발생하거나 재현 되는가 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Q. 어떤 상황에서 CPU spike 와 성능 저하가 발생하거나 재현 되는가?&lt;/h3&gt;
+&lt;p&gt;쿼리하는 결과의 개수가 1000 개 이상인 요청이 여러 건 동시에 발생할때 CPU 사용량이 급격히 증가했으며, 결과 개수가 많으면 비교적 적은 처리량인 10~30TPS 수준에서도 CPU spike 가 발생 하였습니다. 일반적으로 처리하는 데이터 개수인 200-300 개 수준에서는 100TPS 이상 처리해도 CPU spike 가 발생하거나 응답 지연이 발생하지 않았습니다.&lt;/p&gt;
+&lt;h3 id=&quot;1-mongodb-쪽에서-slow-query-가-발생했는가&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#1-mongodb-%EC%AA%BD%EC%97%90%EC%84%9C-slow-query-%EA%B0%80-%EB%B0%9C%EC%83%9D%ED%96%88%EB%8A%94%EA%B0%80&quot; aria-label=&quot;1 mongodb 쪽에서 slow query 가 발생했는가 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;(1) MongoDB 쪽에서 Slow Query 가 발생했는가?&lt;/h3&gt;
+&lt;p&gt;API 의 거의 모든 쿼리는 인덱스 기반 조회가 이루어지며 실제 쿼리 기록을 확인해 봐도 대부분 5ms 이내에 이루어졌고, 장애시점 DBA 및 모니터링 툴에서도 DB쪽에는 특별한 부하나 슬로우 쿼리가 없음을 명확히 확인했습니다.&lt;/p&gt;
+&lt;h3 id=&quot;2-비즈니스-로직이-비효율적인가&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#2-%EB%B9%84%EC%A6%88%EB%8B%88%EC%8A%A4-%EB%A1%9C%EC%A7%81%EC%9D%B4-%EB%B9%84%ED%9A%A8%EC%9C%A8%EC%A0%81%EC%9D%B8%EA%B0%80&quot; aria-label=&quot;2 비즈니스 로직이 비효율적인가 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;(2) 비즈니스 로직이 비효율적인가?&lt;/h3&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; stmtByDate &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; stmtMongoRepository
+    &lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;findBySth&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;sth&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;asSequence&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;filter&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt; it&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;isXX&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+    &lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;filterNot&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt; it&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;isXX2&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+    &lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;groupBy&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt; it&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;date &lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;위에서 보는 것과 같이 비즈니스 로직은 MongoDB 에서 쿼리 결과를 받아온 뒤 단순 필터링 하고 Group By 하여 Map 을 생성하는 가벼운 로직입니다. 확실한 검증을 위하여 DB Read 하는 부분만 없애고 임시 객체 목록 여러개를 랜덤 생성하여 처리하도록 하는 테스트용 API를 추가하여 부하를 걸어 보았으나 1000TPS 가 넘게 처리가 가능했고 CPU spike 문제도 없었으며 응답도 빨랐습니다.&lt;/p&gt;
+&lt;h3 id=&quot;3-connection-pool-이-오픈되는데에-cpu-비용이-큰가&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#3-connection-pool-%EC%9D%B4-%EC%98%A4%ED%94%88%EB%90%98%EB%8A%94%EB%8D%B0%EC%97%90-cpu-%EB%B9%84%EC%9A%A9%EC%9D%B4-%ED%81%B0%EA%B0%80&quot; aria-label=&quot;3 connection pool 이 오픈되는데에 cpu 비용이 큰가 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;(3) Connection Pool 이 오픈되는데에 CPU 비용이 큰가?&lt;/h3&gt;
+&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; &quot;
+    &gt;
+      &lt;a
+    class=&quot;gatsby-resp-image-link&quot;
+    href=&quot;/static/7f6e30e862f87ac4e4f36c9d03f49fdd/985a9/oc1.png&quot;
+    style=&quot;display: block&quot;
+    target=&quot;_blank&quot;
+    rel=&quot;noopener&quot;
+  &gt;
+    &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 5%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAABCAYAAADeko4lAAAACXBIWXMAABYlAAAWJQFJUiTwAAAATUlEQVQI1x3GMQ6AIBAAQX9jYUFhIhY2aCAiHp5e9P8/WROqmc6HxFKNKST8lplTwbmRoR+Ia+QSRetNyWf7o4aptcsh7DEjpfLa1/wBlgckrdrApuAAAAAASUVORK5CYII=&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/7f6e30e862f87ac4e4f36c9d03f49fdd/8ac56/oc1.webp 240w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/d3be9/oc1.webp 480w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/e46b2/oc1.webp 960w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/f992d/oc1.webp 1440w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/ae1af/oc1.webp 1512w&quot;
+              sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/7f6e30e862f87ac4e4f36c9d03f49fdd/8ff5a/oc1.png 240w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/e85cb/oc1.png 480w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/d9199/oc1.png 960w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/07a9c/oc1.png 1440w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/985a9/oc1.png 1512w&quot;
+            sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/7f6e30e862f87ac4e4f36c9d03f49fdd/d9199/oc1.png&quot;
+            alt=&quot;opend connection&quot;
+            title=&quot;opend connection&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+  &lt;/a&gt;
+    &lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;로직 외에도 Connection Pool 이 생성될때 발생하는 CPU 부하인지도 의심해 보았는데요&lt;/p&gt;
+&lt;p&gt;MongoDB 연결 시 커넥션풀의 최소 개수와 최대 개수 설정이 가능한데 &lt;code class=&quot;language-text&quot;&gt;minPoolSize&lt;/code&gt; 와 &lt;code class=&quot;language-text&quot;&gt;maxPoolSize&lt;/code&gt; 를 충분한 개수로 통일하여 어플리케이션 시작 이후에 커넥션 풀 생성이 이루어지지 않도록 설정하고 부하를 걸었을때도 설정 이전과 동일한 TPS 수준에서 CPU 100% 를 달성하는것을 확인할 수 있었습니다.&lt;/p&gt;
+&lt;h3 id=&quot;4-db-커서의-batchsize-문제인가&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#4-db-%EC%BB%A4%EC%84%9C%EC%9D%98-batchsize-%EB%AC%B8%EC%A0%9C%EC%9D%B8%EA%B0%80&quot; aria-label=&quot;4 db 커서의 batchsize 문제인가 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;(4) DB 커서의 batchSize 문제인가?&lt;/h3&gt;
+&lt;p&gt;혹시 커서가 한꺼번에 가져오는 데이터가 적어 여러번 요청을 하여 문제가 발생 했는지 의심하여 커서의 배치 사이즈를 늘려서 부하 테스트를 해 보았으나 이 경우에도 커서 배치 크기와 상관없이 CPU Spike 가 발생 하였습니다.&lt;/p&gt;
+&lt;h3 id=&quot;5-spring-data-mongodb-라이브러리의-기본-역직렬화-컨버터의-성능-문제인가&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#5-spring-data-mongodb-%EB%9D%BC%EC%9D%B4%EB%B8%8C%EB%9F%AC%EB%A6%AC%EC%9D%98-%EA%B8%B0%EB%B3%B8-%EC%97%AD%EC%A7%81%EB%A0%AC%ED%99%94-%EC%BB%A8%EB%B2%84%ED%84%B0%EC%9D%98-%EC%84%B1%EB%8A%A5-%EB%AC%B8%EC%A0%9C%EC%9D%B8%EA%B0%80&quot; aria-label=&quot;5 spring data mongodb 라이브러리의 기본 역직렬화 컨버터의 성능 문제인가 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;(5) spring-data-mongodb 라이브러리의 기본 역직렬화 컨버터의 성능 문제인가?&lt;/h3&gt;
+&lt;p&gt;spring-data-mongodb 의 내부 로직을 살펴보면 &lt;code class=&quot;language-text&quot;&gt;MappingMongoConverter&lt;/code&gt; 를 이용하여 MongoDB Document를 POJO 에 매핑합니다.&lt;br&gt;
+이 과정에서 개발자가 Custom Converter 을 따로 구현해 두지 않았다면 기본 컨버터 구현체는 리플렉션을 사용하여 역직렬화를 진행합니다.&lt;/p&gt;
+&lt;p&gt;런타임에 동적으로 타입을 분석하는 리플렉션 방식의 특성에 따라, 많은 데이터 목록의 역직렬화 시 성능 문제가 발생할 수 있다는 생각을 하였고 Thread Dump 와 프로파일러를 통해서 리플렉션을 이용한 역직렬화 부분에서 실제로 CPU 시간을 주로 점유하고 있음을 확인하였습니다.&lt;/p&gt;
+&lt;p&gt;실제로 부하 상황시 가장 많은 스레드를 점유하고 있던 코드는 아래와 같이 리플렉션을 사용하여 프로퍼티를 매핑하는 부분이였습니다.&lt;/p&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;text&quot;&gt;&lt;pre class=&quot;language-text&quot;&gt;&lt;code class=&quot;language-text&quot;&gt;stackTrace:
+java.lang.Thread.State: RUNNABLE
+at app//kotlin.jvm.JvmClassMappingKt.getJavaObjectType(JvmClassMapping.kt:58)
+at app//kotlin.reflect.jvm.internal.KClassImpl.equals(KClassImpl.kt:293)
+at app//kotlin.jvm.internal.Intrinsics.areEqual(Intrinsics.java:167)
+at app//kotlin.reflect.jvm.internal.KFunctionImpl.equals(KFunctionImpl.kt:176)
+at app//kotlin.jvm.internal.Intrinsics.areEqual(Intrinsics.java:167)
+at app//kotlin.reflect.jvm.internal.KParameterImpl.equals(KParameterImpl.kt:67)
+... 
+app//org.springframework.data.mapping.model.ClassGeneratingEntityInstantiator.createInstance(ClassGeneratingEntityInstantiator.java:102)
+at app//org.springframework.data.mongodb.core.convert.MappingMongoConverter.read(MappingMongoConverter.java:523)
+at app//org.springframework.data.mongodb.core.convert.MappingMongoConverter.readDocument(MappingMongoConverter.java:491)
+at app//org.springframework.data.mongodb.core.convert.MappingMongoConverter.read(MappingMongoConverter.java:427)
+... 
+at com.sun.proxy.$Proxy256.findBySth(Unknown Source)
+at com.xx.yy.zz.api.aggs.AggregationService.aggregate(AggregationService.kt:20)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;h2 id=&quot;3-확실히-리플렉션-방식-역직렬화의-성능-문제가-맞는가&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#3-%ED%99%95%EC%8B%A4%ED%9E%88-%EB%A6%AC%ED%94%8C%EB%A0%89%EC%85%98-%EB%B0%A9%EC%8B%9D-%EC%97%AD%EC%A7%81%EB%A0%AC%ED%99%94%EC%9D%98-%EC%84%B1%EB%8A%A5-%EB%AC%B8%EC%A0%9C%EA%B0%80-%EB%A7%9E%EB%8A%94%EA%B0%80&quot; aria-label=&quot;3 확실히 리플렉션 방식 역직렬화의 성능 문제가 맞는가 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;3. 확실히 리플렉션 방식 역직렬화의 성능 문제가 맞는가?&lt;/h2&gt;
+&lt;p&gt;리플렉션은 비즈니스 로직의 유연성을 높이는 대신 컴파일 타임이 아닌 런타임에 동적으로 타입을 분석하여 클래스의 정보를 가져오게 되므로, JVM 최적화를 수행할 수 없다는 점에서 성능 문제가 발생할 수 있으나 어느정도 성능 문제가 발생할 수 있는지에 대한 정량적 정보는 없으므로 프로젝트 요구사항과 데이터 처리량에 따라 성능을 확인해야 했습니다.&lt;/p&gt;
+&lt;p&gt;꽤 많은 참고 자료에서는 JIT compiler 의 바이트 코드 캐싱 등의 도움을 받아 거의 성능 차이가 없다는 식의 글들도 많이 있었고, 무엇보다 흔히 쓰이는 json 역직렬화 라이브러리 jackson 또한 기본적으로 리플렉션 방식을 사용하고 있어 성능은 전혀 걱정하지 않고 있었습니다.&lt;/p&gt;
+&lt;p&gt;그러나 리플렉션 방식을 이용한 역직렬화 부분에서 많은 CPU 시간을 사용하고 있다는 것을 스레드 덤프와 프로파일링을 통해 확인하였기 때문에 nGrinder 을 이용하여 많은 요청량이 몰리는 상황에서 실제로 리플렉션 성능 저하가 발생하는지 확인해 보았습니다.&lt;/p&gt;
+&lt;h3 id=&quot;공통-상황&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#%EA%B3%B5%ED%86%B5-%EC%83%81%ED%99%A9&quot; aria-label=&quot;공통 상황 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;공통 상황&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;vuser 30명&lt;/li&gt;
+&lt;li&gt;한 요청당 역직렬화 대상 데이터는 1000~1500개&lt;/li&gt;
+&lt;li&gt;DB관련 설정 (Connection Pool 개수, 배치 사이즈 등) 은 모두 동일&lt;/li&gt;
+&lt;li&gt;필터링, map 생성 등 역직렬화 외 모든 비즈니스 로직은 동일&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3 id=&quot;테스트-결과&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#%ED%85%8C%EC%8A%A4%ED%8A%B8-%EA%B2%B0%EA%B3%BC&quot; aria-label=&quot;테스트 결과 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;테스트 결과&lt;/h3&gt;
+&lt;ol&gt;
+&lt;li&gt;spring-data-mongodb + 기본 컨버터 (리플렉션 사용)&lt;/li&gt;
+&lt;/ol&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; readData &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; mongoRepository&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;findSthByXX&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; &quot;
+    &gt;
+      &lt;a
+    class=&quot;gatsby-resp-image-link&quot;
+    href=&quot;/static/ec2cf0bd4ceb784733f49a491353beb7/d5ef8/t1.png&quot;
+    style=&quot;display: block&quot;
+    target=&quot;_blank&quot;
+    rel=&quot;noopener&quot;
+  &gt;
+    &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 30.83333333333333%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAGCAYAAADDl76dAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAyklEQVQY021QyW0EMQxz/32kkry3hRSR8aGbAT1HskAEEKRliKbcRAQRgapCZiKrtiZ671A1VAGZ9S8iCkDh9RX4+DQ0Drk72PZIsG5DmrkJMvQN4e+9CoWZYi5FY8JtWAVR3XybMrHZhBmTdrj1reXS95kcTky04zhA0OD4PhDmjyG/goZLODjgPuA2tg4f5yM+njvRiTbGAFPSYK2Fy+33T2MhfQA5H1SczHRbX+fwhcZ1Ocj6uzKLCVUmwhZMJ5zrk/Xku/fABT8artcUbwNoUgAAAABJRU5ErkJggg==&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/ec2cf0bd4ceb784733f49a491353beb7/8ac56/t1.webp 240w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/d3be9/t1.webp 480w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/e46b2/t1.webp 960w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/f992d/t1.webp 1440w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/882b9/t1.webp 1920w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/f20b7/t1.webp 2462w&quot;
+              sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/ec2cf0bd4ceb784733f49a491353beb7/8ff5a/t1.png 240w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/e85cb/t1.png 480w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/d9199/t1.png 960w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/07a9c/t1.png 1440w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/29114/t1.png 1920w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/d5ef8/t1.png 2462w&quot;
+            sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/ec2cf0bd4ceb784733f49a491353beb7/d9199/t1.png&quot;
+            alt=&quot;test 1&quot;
+            title=&quot;test 1&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+  &lt;/a&gt;
+    &lt;/span&gt;&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;spring-data-mongodb + 커스텀 컨버터 (리플렉션 미사용)&lt;/li&gt;
+&lt;/ol&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; readData &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; mongoRepository&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;findSthByXX&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token keyword&quot;&gt;class&lt;/span&gt; DocumentToPojoConverter &lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Converter&lt;span class=&quot;token operator&quot;&gt;&amp;lt;&lt;/span&gt;Document&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt; Pojo&lt;span class=&quot;token operator&quot;&gt;&gt;&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;token keyword&quot;&gt;override&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;fun&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;convert&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;source&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Document&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Pojo &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;token keyword&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;Pojo&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;
+            id &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; source&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;getString&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;_id&quot;&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt;
+            field1 &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; source&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;getString&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;field1&quot;&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt;
+            &lt;span class=&quot;token operator&quot;&gt;..&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;
+        &lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token annotation builtin&quot;&gt;@Configuration&lt;/span&gt;
+&lt;span class=&quot;token keyword&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;MongodbConfig&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;
+    &lt;span class=&quot;token annotation builtin&quot;&gt;@Value&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;\${mongodb.uri}&quot;&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;private&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; mongodbUri&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; String&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;token annotation builtin&quot;&gt;@Value&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;\${mongodb.auto-index-creation:false}&quot;&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;private&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; autoIndexCreation&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Boolean&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt;
+&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;AbstractMongoClientConfiguration&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;token operator&quot;&gt;..&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;
+
+    &lt;span class=&quot;token keyword&quot;&gt;override&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;fun&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;configureConverters&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;converterConfigurationAdapter&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; MongoCustomConversions&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;MongoConverterConfigurationAdapter&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+        converterConfigurationAdapter&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;registerConverters&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;
+            &lt;span class=&quot;token function&quot;&gt;listOf&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;
+                &lt;span class=&quot;token function&quot;&gt;DocumentToPojoConverter&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt;
+            &lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; &quot;
+    &gt;
+      &lt;a
+    class=&quot;gatsby-resp-image-link&quot;
+    href=&quot;/static/2fdc5fbb963a9fa66f605585e74dd427/cd78c/t2.png&quot;
+    style=&quot;display: block&quot;
+    target=&quot;_blank&quot;
+    rel=&quot;noopener&quot;
+  &gt;
+    &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 30.83333333333333%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAGCAYAAADDl76dAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAwUlEQVQY03WQiw3DIAxE2X+iDlGpE3SJAAH84aozSRpVaqTTGc48TFLvHWaGOSfcZ/ipbcsYY2BOROZHz6+Aiefb8Xg5UmttAQFohMwXkPumDX5I5VtT98yNGki1VnBKAkrd4eYHk7d7NE/bIVLQeg5XqeESftZUQyqlIOcckJIz3OwCckKRHWMUqFaY7gF35cWrPtd0047E6VQ1AHw+/Q5czfU6/F91AeOQr2eKyAXkFxOO9e8o1nyWyLnXr2zlHR95tNeGKa2RJgAAAABJRU5ErkJggg==&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/2fdc5fbb963a9fa66f605585e74dd427/8ac56/t2.webp 240w,
+/static/2fdc5fbb963a9fa66f605585e74dd427/d3be9/t2.webp 480w,
+/static/2fdc5fbb963a9fa66f605585e74dd427/e46b2/t2.webp 960w,
+/static/2fdc5fbb963a9fa66f605585e74dd427/5b1dd/t2.webp 1236w&quot;
+              sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/2fdc5fbb963a9fa66f605585e74dd427/8ff5a/t2.png 240w,
+/static/2fdc5fbb963a9fa66f605585e74dd427/e85cb/t2.png 480w,
+/static/2fdc5fbb963a9fa66f605585e74dd427/d9199/t2.png 960w,
+/static/2fdc5fbb963a9fa66f605585e74dd427/cd78c/t2.png 1236w&quot;
+            sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/2fdc5fbb963a9fa66f605585e74dd427/d9199/t2.png&quot;
+            alt=&quot;test 2&quot;
+            title=&quot;test 2&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+  &lt;/a&gt;
+    &lt;/span&gt;&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;mongoTemplate + Jackson (리플렉션 사용)&lt;/li&gt;
+&lt;/ol&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; readData &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; collection&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;find&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;query&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;map&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt; objectMapper&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;readValue&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;it&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;toJson&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt; Pojo&lt;span class=&quot;token operator&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;token keyword&quot;&gt;class&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;java&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; &quot;
+    &gt;
+      &lt;a
+    class=&quot;gatsby-resp-image-link&quot;
+    href=&quot;/static/2c7067cd96d1d8b74ab299624f9b11e2/d5ef8/t3.png&quot;
+    style=&quot;display: block&quot;
+    target=&quot;_blank&quot;
+    rel=&quot;noopener&quot;
+  &gt;
+    &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 30.41666666666667%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAGCAYAAADDl76dAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAq0lEQVQY042Q3Q3DMAiEvf8gXaRPnaFbRDFg/q7CTVJFyUORTge2+LBpLIKIQGZetCwLVBUVd/eliKxbvN6Ox1PR1nWFmyETGOan5hrkJjBl6BRNP9eEMQhuBISgEdXBmADqhIw4oO4OqwatoR26uVmfPnP95SwdjZlR0AIIyy0wnJB/yI3Reu/HCwu+0Y4vp/NfMOzAWvq+MxGZvoeZYch3b7UnvYhPtangA0hp11a7a1fNAAAAAElFTkSuQmCC&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/2c7067cd96d1d8b74ab299624f9b11e2/8ac56/t3.webp 240w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/d3be9/t3.webp 480w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/e46b2/t3.webp 960w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/f992d/t3.webp 1440w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/882b9/t3.webp 1920w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/f20b7/t3.webp 2462w&quot;
+              sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/2c7067cd96d1d8b74ab299624f9b11e2/8ff5a/t3.png 240w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/e85cb/t3.png 480w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/d9199/t3.png 960w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/07a9c/t3.png 1440w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/29114/t3.png 1920w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/d5ef8/t3.png 2462w&quot;
+            sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/2c7067cd96d1d8b74ab299624f9b11e2/d9199/t3.png&quot;
+            alt=&quot;test 3&quot;
+            title=&quot;test 3&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+  &lt;/a&gt;
+    &lt;/span&gt;&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;mongoTemplate + 직접 매핑 (리플렉션 미사용)&lt;/li&gt;
+&lt;/ol&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; readData &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; collection&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;find&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;query&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;map&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt; it&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;toPojo&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token keyword&quot;&gt;fun&lt;/span&gt; Document&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;toPojo&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Pojo &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;token keyword&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;Pojo&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;
+        id &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;getString&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;_id&quot;&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt;
+        field1 &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;getString&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;field1&quot;&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt;
+        &lt;span class=&quot;token operator&quot;&gt;..&lt;/span&gt;&lt;span class=&quot;token operator&quot;&gt;..&lt;/span&gt;
+    &lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; &quot;
+    &gt;
+      &lt;a
+    class=&quot;gatsby-resp-image-link&quot;
+    href=&quot;/static/77fd49bed915fcbcd4b17216cc6a989f/0330c/t4.png&quot;
+    style=&quot;display: block&quot;
+    target=&quot;_blank&quot;
+    rel=&quot;noopener&quot;
+  &gt;
+    &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 30.83333333333333%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAGCAYAAADDl76dAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAtUlEQVQY032Rja3CMAyEs/8yzMEKjJEG1/+HnLTlPSGwdDrbST7ZStt3RkQgMy8/823bYGZH/V1A4v5w3O6KNsaAuyMTUA9UnFARgSnD7S2zz7okwiAWNGY+gAlmWTCsqL7IgOmYrrpk+jx85dNtwG1H672jpizQ1jsy1pRFLaAbIZ0u/6WaeK6sqhNIRP9WjvDrMv48RHzC6jyc0U7YWpmnn1EfolwrEUyWdOroTe3rTAnChBdDlddO2+49QAAAAABJRU5ErkJggg==&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/77fd49bed915fcbcd4b17216cc6a989f/8ac56/t4.webp 240w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/d3be9/t4.webp 480w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/e46b2/t4.webp 960w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/f992d/t4.webp 1440w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/882b9/t4.webp 1920w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/eb0ee/t4.webp 2458w&quot;
+              sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/77fd49bed915fcbcd4b17216cc6a989f/8ff5a/t4.png 240w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/e85cb/t4.png 480w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/d9199/t4.png 960w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/07a9c/t4.png 1440w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/29114/t4.png 1920w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/0330c/t4.png 2458w&quot;
+            sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/77fd49bed915fcbcd4b17216cc6a989f/d9199/t4.png&quot;
+            alt=&quot;test 4&quot;
+            title=&quot;test 4&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+  &lt;/a&gt;
+    &lt;/span&gt;&lt;/p&gt;
+&lt;h3 id=&quot;테스트-결과-요약&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#%ED%85%8C%EC%8A%A4%ED%8A%B8-%EA%B2%B0%EA%B3%BC-%EC%9A%94%EC%95%BD&quot; aria-label=&quot;테스트 결과 요약 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;테스트 결과 요약&lt;/h3&gt;
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;순위&lt;/th&gt;
+&lt;th&gt;테스트 케이스&lt;/th&gt;
+&lt;th&gt;평균 TPS&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;1&lt;/td&gt;
+&lt;td&gt;mongoTemplate + 직접 매핑 (리플렉션 미사용)&lt;/td&gt;
+&lt;td&gt;187&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;2&lt;/td&gt;
+&lt;td&gt;spring-data-mongodb + 커스텀 컨버터 (리플렉션 미사용)&lt;/td&gt;
+&lt;td&gt;103&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;3&lt;/td&gt;
+&lt;td&gt;mongoTemplate + Jackson (리플렉션 사용)&lt;/td&gt;
+&lt;td&gt;44&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;4&lt;/td&gt;
+&lt;td&gt;spring-data-mongodb + 기본 컨버터 (리플렉션 사용)&lt;/td&gt;
+&lt;td&gt;18&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;ul&gt;
+&lt;li&gt;리플렉션을 사용하지 않은 케이스가 성능이 더 우수&lt;/li&gt;
+&lt;li&gt;spring-data-mongodb 의 오버헤드가 없는 mongoTemplate 직접 사용이 성능이 더 우수&lt;/li&gt;
+&lt;li&gt;필드(프로퍼티) 수가 많을수록 리플렉션을 사용할 시 성능 저하가 더 심함&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id=&quot;3-결론&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#3-%EA%B2%B0%EB%A1%A0&quot; aria-label=&quot;3 결론 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;3. 결론&lt;/h2&gt;
+&lt;p&gt;저는 위의 케이스에서 그나마 코드 변경이 적고 성능도 어느정도 나오는 &lt;strong&gt;2번 방법 (spring-data-mongodb + 커스텀 컨버터)&lt;/strong&gt; 을 이용하여 다량 조회 성능을 개선하기로 결정 하였는데요&lt;/p&gt;
+&lt;p&gt;리플렉션은 어노테이션 처리, Jackson 과 같은 각종 라이브러리에서 널리 쓰이는 API 로 런타임에 타입에 따라 유연하게 클래스 정보를 다룰 수 있고 JIT Compiler 의 캐싱 등으로 상황에 따라서는 성능과 유연성 두마리 토끼를 잡을 수 있는 유용한 방식이기도 하지만 성능이 중요한 상황에서는 리플렉션의 사용을 진지하게 검토해 보고 고민해 보아야 할 것 같습니다.&lt;/p&gt;</content:encoded></item><item><title><![CDATA[EntityManager 은 Thread Safe 하지 않다]]></title><description><![CDATA[하지만 EntityManagerFactory 는 Thread Safe 하다.]]></description><link>https://donsworkout.github.io/posts/entitymanager</link><guid isPermaLink="false">https://donsworkout.github.io/posts/entitymanager</guid><pubDate>Thu, 02 Mar 2023 22:40:32 GMT</pubDate><content:encoded>&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; &quot;
+    &gt;
+      &lt;a
+    class=&quot;gatsby-resp-image-link&quot;
+    href=&quot;/static/096fbc3c474cc0b86d197b58fdc71aa4/3ceac/jpa.png&quot;
+    style=&quot;display: block&quot;
+    target=&quot;_blank&quot;
+    rel=&quot;noopener&quot;
+  &gt;
+    &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 30.83333333333333%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAGCAYAAADDl76dAAAACXBIWXMAAAsTAAALEwEAmpwYAAAA6UlEQVQY04WPvWqDABhFfUfB2Udwc1TwARx8CRHMIghCadJAukaqQ1oKRoq0lP5grFGj5hQDKa1N2gMf33K43CswYr/fH26grmuyLCOKIuI4pqoqkiT54R3dI8I47Ptv2xbDMFAUBVmWsSwLURRpmuZsqHCuXdd1OI6DruuoqkoQBGiahiRJ+L7/5YwRTk0eKDY5pmli2zae5xGGIa7rMp3NmEzcg9P3/f8NB6qq5npxwTpds7yJubyaM50vuFuFPCQhz4/35O9Pv1b9Ofl2tSRN13yUJS+vb+Sbgu22YNeUNHXJrtmeDPwEmZm9gJrZRZIAAAAASUVORK5CYII=&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/096fbc3c474cc0b86d197b58fdc71aa4/8ac56/jpa.webp 240w,
+/static/096fbc3c474cc0b86d197b58fdc71aa4/d3be9/jpa.webp 480w,
+/static/096fbc3c474cc0b86d197b58fdc71aa4/e46b2/jpa.webp 960w,
+/static/096fbc3c474cc0b86d197b58fdc71aa4/f992d/jpa.webp 1440w,
+/static/096fbc3c474cc0b86d197b58fdc71aa4/5377c/jpa.webp 1456w&quot;
+              sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/096fbc3c474cc0b86d197b58fdc71aa4/8ff5a/jpa.png 240w,
+/static/096fbc3c474cc0b86d197b58fdc71aa4/e85cb/jpa.png 480w,
+/static/096fbc3c474cc0b86d197b58fdc71aa4/d9199/jpa.png 960w,
+/static/096fbc3c474cc0b86d197b58fdc71aa4/07a9c/jpa.png 1440w,
+/static/096fbc3c474cc0b86d197b58fdc71aa4/3ceac/jpa.png 1456w&quot;
+            sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/096fbc3c474cc0b86d197b58fdc71aa4/d9199/jpa.png&quot;
+            alt=&quot;jpa&quot;
+            title=&quot;jpa&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+  &lt;/a&gt;
+    &lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;JPA 는 자바 ORM 의 표준이다.
+&lt;code class=&quot;language-text&quot;&gt;ORM = Object Relational Mapping&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;말그래도 메모리에 떠다니는 Object 를 영속화 Layer 에 맞는 형태로 만들어 매핑하겠다는 패러다임이다. 그리고 영속성 컨텍스트란 말 그대로 Object가 영속화가 되는 순간과 그 전후를 나타내는 논리적인 맥락이라고 할 수 있을것 같다.&lt;/p&gt;
+&lt;h3 id=&quot;entitymanager&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#entitymanager&quot; aria-label=&quot;entitymanager permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;EntityManager&lt;/h3&gt;
+&lt;p&gt;Spring 에서는 &lt;code class=&quot;language-text&quot;&gt;EntityManager&lt;/code&gt; 을 통해 이 영속성 컨텍스트에 접근할 수 있다. 다만 주의해야 할 것이 본래 JPA 의 &lt;code class=&quot;language-text&quot;&gt;EntityManager&lt;/code&gt; 은 Thread-Safe 하지 않다. 스레드간 &lt;code class=&quot;language-text&quot;&gt;EntityManager&lt;/code&gt; 을 공유한다면 영속성 컨텍스트의 상태가 개판이 될 것이다.&lt;/p&gt;
+&lt;p&gt;따라서 싱글톤 기반 스프링에서는 &lt;code class=&quot;language-text&quot;&gt;EntityManager&lt;/code&gt; 을 직접 주입받으면 안되고, Thread-Safe 한 &lt;code class=&quot;language-text&quot;&gt;EntityManagerFactory&lt;/code&gt; 로 &lt;code class=&quot;language-text&quot;&gt;EntityManager&lt;/code&gt; 을 생성해서 사용해야 한다.&lt;/p&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; factory &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; Persistence&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;createEntityManagerFactory&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;factory&quot;&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; entityManager &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; factory&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;createEntityManager&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;아니면 &lt;code class=&quot;language-text&quot;&gt;@PersistenceContext&lt;/code&gt; 어노테이션을 통해 주입 받는 방법도 있는데 이는 실제 &lt;code class=&quot;language-text&quot;&gt;EntityManager&lt;/code&gt; 을 주입 받는 것이 아니라 프록시 객체를 주입 받게 되며 내부적으로는 &lt;code class=&quot;language-text&quot;&gt;EntityManagerFactory&lt;/code&gt; 를 사용하여 &lt;code class=&quot;language-text&quot;&gt;EntityManger&lt;/code&gt; 를 생성하게 되어 Thread-Safe 를 보장하게 된다.&lt;/p&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token annotation builtin&quot;&gt;@PersistenceContext&lt;/span&gt;
+&lt;span class=&quot;token keyword&quot;&gt;private&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;lateinit&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;var&lt;/span&gt; nbbEntityManagerTwo&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; EntityManager&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;그리고 여기서 추가로 궁금해진 것이 &lt;code class=&quot;language-text&quot;&gt;@Autowired&lt;/code&gt; 로 주입 받으면 Proxy 가 아니라 진짜 &lt;code class=&quot;language-text&quot;&gt;EntityManager&lt;/code&gt; 객체를 주는가 에 대한 부분이였는데, 결론은 &lt;code class=&quot;language-text&quot;&gt;@Autowired&lt;/code&gt; 써도 프록시 객체를 주입 받는다.&lt;/p&gt;
+&lt;p&gt;현재 우리 프로젝트는 &lt;code class=&quot;language-text&quot;&gt;spring-boot-starter-data-jpa&lt;/code&gt; 를 쓰고 있는데 얘가 스프링 빈 주입할때 @Autowired 라도 &lt;code class=&quot;language-text&quot;&gt;EntityManager&lt;/code&gt; 을 주입하는 상황이면 어노테이션과 상관없이 프록시 객체를 주는 것 같다.&lt;/p&gt;
+&lt;p&gt;이 부분을 추가로 확인하고 싶다면, 저 의존성을 떼내어 테스트 해 볼수 있겠지만 굳이 해보진 않았다. 그냥 아래 코드처럼 우리 프로젝트에서만 확인을 해 보았다.&lt;/p&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token annotation builtin&quot;&gt;@Autowired&lt;/span&gt;
+&lt;span class=&quot;token keyword&quot;&gt;private&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;lateinit&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;var&lt;/span&gt; entityManagerA&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; EntityManager
+
+&lt;span class=&quot;token annotation builtin&quot;&gt;@PersistenceContext&lt;/span&gt;
+&lt;span class=&quot;token keyword&quot;&gt;private&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;lateinit&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;var&lt;/span&gt; entityManagerB&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; EntityManager
+
+&lt;span class=&quot;token annotation builtin&quot;&gt;@Test&lt;/span&gt;
+&lt;span class=&quot;token keyword&quot;&gt;fun&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;test&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;token function&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;entityManagerA&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;token function&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;entityManagerB&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;요렇게 주입받고 test 해 보면 둘다 프록시 객체인 것을 알 수 있다.&lt;/p&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;text&quot;&gt;&lt;pre class=&quot;language-text&quot;&gt;&lt;code class=&quot;language-text&quot;&gt;Shared EntityManager proxy for target factory [org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean@378bc0d4]
+Shared EntityManager proxy for target factory [org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean@378bc0d4]&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;아무튼 엔티티매니저는 요청(스레드) 에 따라 Factory 에서 생성되어 영속화를 진행하게 된다.&lt;/p&gt;
+&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; &quot;
+    &gt;
+      &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 62.5%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAANCAYAAACpUE5eAAAACXBIWXMAABYlAAAWJQFJUiTwAAABfElEQVQ4y4WSW4+CQAyF5///OR94ABJRAQFRkYui4q3ma1Izu26yJKVzac85ndaJiDweDxnHUc7n8w9/vV7lfr+rsebMzGK443u9Xuodv+PxKIfDQf0wDNL3vZxOJ8myTGazmRprACzGcoj9AjQQYzUFbdtKVVVqdV3LarWSOI5luVxK13V6T+6fgAQAhDIz9jzH5XJRNagMgkDyPNf4/X7/P6CBmsrFYqGJu91OPaUaITl+yZjz3w4AAtljZVkqIKUR5xOi2ge0z202G2maRvCoAGQ+nytQkiSqCjBTxVsWRaE5RmyT8nw+xfHQMFkAyYAbAe/FGerxAKZpqqDcIQBSPFU6AoyJMihpmib1BJFEzO12U2JAUc4ZHY+iSNfb7VYxPiUzGiiCOQojDQzDUAFQwD3VrNfrDwlmDSSG4XfMFA8LO5c0gEtIMO4ABQgFgEGGevZfTQGEQyTbsFpX/T0xRmZNIYczPhqiY8MGqTZn+N9r33z1ANIsf7DfjVTdFuJjpLYAAAAASUVORK5CYII=&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/f0285ea57bbde97a435e15e83e642293/8ac56/etm.webp 240w,
+/static/f0285ea57bbde97a435e15e83e642293/d3be9/etm.webp 480w,
+/static/f0285ea57bbde97a435e15e83e642293/e46b2/etm.webp 960w,
+/static/f0285ea57bbde97a435e15e83e642293/52cea/etm.webp 1426w&quot;
+              sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/f0285ea57bbde97a435e15e83e642293/8ff5a/etm.png 240w,
+/static/f0285ea57bbde97a435e15e83e642293/e85cb/etm.png 480w,
+/static/f0285ea57bbde97a435e15e83e642293/d9199/etm.png 960w,
+/static/f0285ea57bbde97a435e15e83e642293/daed9/etm.png 1426w&quot;
+            sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/f0285ea57bbde97a435e15e83e642293/d9199/etm.png&quot;
+            alt=&quot;ETM 구조&quot;
+            title=&quot;ETM 구조&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+    &lt;/span&gt;
+그림 출처 : &lt;a href=&quot;https://catsbi.oopy.io/523e7c47-e9ab-43ef-bc19-3e527ecff3a7&quot; target=&quot;_blank&quot; rel=&quot;nofollow noopener noreferrer&quot;&gt;https://catsbi.oopy.io/523e7c47-e9ab-43ef-bc19-3e527ecff3a7&lt;/a&gt;&lt;/p&gt;</content:encoded></item><item><title><![CDATA[Spring AOP 가 활용하는 두 Proxy]]></title><description><![CDATA[프록시를 알아야 retry 와 circuit breaker 가 보인다]]></description><link>https://donsworkout.github.io/posts/spring-aop-proxy</link><guid isPermaLink="false">https://donsworkout.github.io/posts/spring-aop-proxy</guid><pubDate>Wed, 01 Mar 2023 22:40:32 GMT</pubDate><content:encoded>&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; &quot;
+    &gt;
+      &lt;a
+    class=&quot;gatsby-resp-image-link&quot;
+    href=&quot;/static/973ecc0d861fd884a29097949733b9fe/077b7/proxy.png&quot;
+    style=&quot;display: block&quot;
+    target=&quot;_blank&quot;
+    rel=&quot;noopener&quot;
+  &gt;
+    &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 48.75000000000001%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAKCAYAAAC0VX7mAAAACXBIWXMAABYlAAAWJQFJUiTwAAAB/klEQVQoz3VSy2sTcRDef8tbUSOC9uKl4EGvHrSCF/FRoz2kpKWoreJBFNTiCwvWgq14qSBsEvPczWaTfSYkhCSb98PQrLufzGhKLxn4+GaG38x8M7vC5oeL2Hy3gBc7lxB+dR5LG2cQejmHh+9P4/ajAIJP53EtdAJb3++CzPN8+P5sCEurC7i3fgErTy7j1to8Fu/P4XrwJB5snMNi8BSu3jmLKzcDuLEaQKmVxD/zMcuET3vr+PrjGb79fI7t/cf4uB/C2y8r2D0Is/96O4ytz2t4s7sMyTzA79EhhsMB+v0+er0e82g0wng8ZgiJXxlYZhlOowNV0aHlbWh5C4qsQ0qrnNM1G1JKRTolQ4yISCaTSCQSEEURkUgE6XQak8kErutCaDYdmJYByzZhGDp0Q4P7Z8JreZ4L3/fIw8Q9hP9/VbrVcTseC5ZlIZVKIRqNIh6P8+R6vY5Op4NWq4V2u81oNpvodrvMjUaDc7VaDY7jMChfrVYhkHxd15HNZqGqKjNBkiReh5hAa8ViMSiKwnGhUEA+nz+CYRgsTCCHGhBTY1mWjx7QANqAYk3TkMlkOE/qCaRqqpxUDodDCDSJGtHkXC7HRVRMIPXTAcSmaTLTG2oyPQv5dIbBYAChUqnww3K5jFKpxI1s20axWORG5FMRfcEpPM+b+R/+Bcc3vXAjtDNgAAAAAElFTkSuQmCC&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/973ecc0d861fd884a29097949733b9fe/8ac56/proxy.webp 240w,
+/static/973ecc0d861fd884a29097949733b9fe/d3be9/proxy.webp 480w,
+/static/973ecc0d861fd884a29097949733b9fe/e46b2/proxy.webp 960w,
+/static/973ecc0d861fd884a29097949733b9fe/308c4/proxy.webp 1166w&quot;
+              sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/973ecc0d861fd884a29097949733b9fe/8ff5a/proxy.png 240w,
+/static/973ecc0d861fd884a29097949733b9fe/e85cb/proxy.png 480w,
+/static/973ecc0d861fd884a29097949733b9fe/d9199/proxy.png 960w,
+/static/973ecc0d861fd884a29097949733b9fe/077b7/proxy.png 1166w&quot;
+            sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/973ecc0d861fd884a29097949733b9fe/d9199/proxy.png&quot;
+            alt=&quot;proxy&quot;
+            title=&quot;proxy&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+  &lt;/a&gt;
+    &lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;&lt;code class=&quot;language-text&quot;&gt;AOP = Aspect Oriented Programming&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;관점 지향 프로그래밍은 한 로직에서 핵심적인 관점으로 보는 로직과 그 외 부가적인 관점으로 보는 로직들을 나누겠다는 프로그래밍 패러다임이고 C++, 루비, 닷넷 프레임워크 등 많은 언어와 프레임워크에서 AOP 를 지원하고 있다.&lt;/p&gt;
+&lt;p&gt;사실 예전에 스프링 AOP 공부 할때 프록시 쪽은 제대로 보지 않았었고&lt;br&gt;
+포인트컷.. 어드바이스.. 위빙.. 이런 용어가 있구나.. 프록시가 이거구나.. 정도로 넘어갔던거 같은데, 요즘 우리팀 인턴 분 과제 중 하나가 AOP 패러다임을 차용한 &lt;code class=&quot;language-text&quot;&gt;resilience4j&lt;/code&gt; 의 서킷 브레이커를 활용하는 것이라 이걸 좀 보다 보니 Spring Proxy 를 좀 자세히 알아 봐야겠다는 생각이 들었다.&lt;/p&gt;
+&lt;p&gt;&lt;code class=&quot;language-text&quot;&gt;Proxy == 대리인&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;프록시는 말 그대로 대리인 역할을 한다.&lt;/p&gt;
+&lt;h3 id=&quot;spring-aop-는-proxy-기반으로-jdk-dynamic-proxy-와-cglib-를-활용하여-aop를-제공하고-있다&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#spring-aop-%EB%8A%94-proxy-%EA%B8%B0%EB%B0%98%EC%9C%BC%EB%A1%9C-jdk-dynamic-proxy-%EC%99%80-cglib-%EB%A5%BC-%ED%99%9C%EC%9A%A9%ED%95%98%EC%97%AC-aop%EB%A5%BC-%EC%A0%9C%EA%B3%B5%ED%95%98%EA%B3%A0-%EC%9E%88%EB%8B%A4&quot; aria-label=&quot;spring aop 는 proxy 기반으로 jdk dynamic proxy 와 cglib 를 활용하여 aop를 제공하고 있다 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Spring AOP 는 Proxy 기반으로 JDK Dynamic Proxy 와 CGLIB 를 활용하여 AOP를 제공하고 있다.&lt;/h3&gt;
+&lt;p&gt;Spring Retry, resilience4j circuit breaker 은 모두 위 두가지 proxy 를 모두 사용할 수 있고, 둘은 작동하는 방식이 완전 다르다.&lt;/p&gt;
+&lt;h3 id=&quot;1-jdk-dynamic-proxy&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#1-jdk-dynamic-proxy&quot; aria-label=&quot;1 jdk dynamic proxy permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;1. JDK Dynamic Proxy&lt;/h3&gt;
+&lt;p&gt;JDK Dynamic Proxy 는 Java 의 reflection 패키지에 존재하는 Proxy 클래스를 통해 생성된 프록시 객체이다.&lt;/p&gt;
+&lt;p&gt;&lt;code class=&quot;language-text&quot;&gt;Proxy.newProxyInstance&lt;/code&gt; 함수를 사용하여 동적으로 프록시를 만드는데 요 로직 내부에서 프록시 객체를 만들 때, 대리해야 할 객체의 구현 클래스로 객체를 생성하는게 아니라 인터페이스를 구현하여 만드는 형태이기 때문에 대리 대상이 되는 클래스는 무조건 인터페이스가 있어야 한다.&lt;/p&gt;
+&lt;p&gt;만약 인터페이스가 아니라 구현 클래스를 인자로 전달한다면 오류가 발생한다.
+아무튼 이를 이용하여 간단한 프록시 동작을 구현하는 코드 예제를 살펴 보자&lt;/p&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token keyword&quot;&gt;interface&lt;/span&gt; SomeInterface &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;token keyword&quot;&gt;fun&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;doSth&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; String
+&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;token keyword&quot;&gt;class&lt;/span&gt; SomeImpl &lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; SomeInterface &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;  
+    &lt;span class=&quot;token keyword&quot;&gt;override&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;fun&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;doSth&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; String &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;token keyword&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;main activity&quot;&lt;/span&gt;&lt;/span&gt;
+    &lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;token keyword&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;SomeInvocationHandler&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token keyword&quot;&gt;private&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; target&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Any&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; InvocationHandler &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;token keyword&quot;&gt;override&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;fun&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;invoke&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;proxy&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Any&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt; method&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Method&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt; args&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Array&lt;span class=&quot;token operator&quot;&gt;&amp;lt;&lt;/span&gt;Any&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;token operator&quot;&gt;&gt;&lt;/span&gt;&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Any&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;token function&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;Before Action&quot;&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; result &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; method&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;invoke&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;target&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;token operator&quot;&gt;*&lt;/span&gt;args &lt;span class=&quot;token operator&quot;&gt;?:&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;arrayOf&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;token function&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;After Action&quot;&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;token keyword&quot;&gt;return&lt;/span&gt; result
+    &lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;token keyword&quot;&gt;fun&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;main&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;args&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Array&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; someInvocationHandler &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;SomeInvocationHandler&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;SomeImpl&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+
+    &lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; proxy &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; Proxy&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;newProxyInstance&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;
+        SomeInterface&lt;span class=&quot;token operator&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;token keyword&quot;&gt;class&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;java&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;classLoader&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt;
+        &lt;span class=&quot;token function&quot;&gt;arrayOf&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;SomeInterface&lt;span class=&quot;token operator&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;token keyword&quot;&gt;class&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;java&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt;
+        someInvocationHandler
+    &lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;as&lt;/span&gt; SomeInterface
+
+    &lt;span class=&quot;token function&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;proxy&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;doSth&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;프록시가 구현한 &lt;code class=&quot;language-text&quot;&gt;doSth&lt;/code&gt; 함수에는 &lt;code class=&quot;language-text&quot;&gt;someInvocationHandler&lt;/code&gt; 의 invoke 함수에 기입된 내용들이 들어가 있을 것이고 실행하면 아래와 같은 결과가 출력될 것이다.&lt;/p&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;text&quot;&gt;&lt;pre class=&quot;language-text&quot;&gt;&lt;code class=&quot;language-text&quot;&gt;&quot;Before Action&quot;
+&quot;main activity&quot;
+&quot;After Action&quot;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;JDK Dynamic 프록시에서 중요한 부분은 대리 대상 클래스가 무조건 인터페이스가 있어야 한다는 것이고, 해당 인터페이스를 구현하여 프록시 동작이 일어난다는 것이다.&lt;/p&gt;
+&lt;h3 id=&quot;2-cglib-proxy&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#2-cglib-proxy&quot; aria-label=&quot;2 cglib proxy permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;2. CGLIB Proxy&lt;/h3&gt;
+&lt;p&gt;대리 대상 클래스가 인터페이스가 없다면, CGLIB Proxy 를 사용하는 방법도 있다.&lt;br&gt;
+CGLIB Proxy 는 바이트 코드를 조작하여 동적으로 프록시를 생성하는데, 내부적으로 대리 대상 클래스를 상속받아 프록시를 생성하는 방식이므로 대상 클래스는 final 이면 안된다. (상속 가능해야 한다)&lt;/p&gt;
+&lt;p&gt;JDK Dynamic Proxy 에 &lt;code class=&quot;language-text&quot;&gt;InvocationHandler&lt;/code&gt; 가 있었다면 CGLIB 에는 MethodInterceptor 가 있고, JDK Dynamic Proxy 가 &lt;code class=&quot;language-text&quot;&gt;newProxyInstance &lt;/code&gt;로 프록시 객체를 만들었다면 CGLIB 는 &lt;code class=&quot;language-text&quot;&gt;Enhancer&lt;/code&gt; 라는 클래스의 객체가 프록시 객체를 생성한다.&lt;/p&gt;
+&lt;p&gt;바로 예제 코드를 보자&lt;/p&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token keyword&quot;&gt;open&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;class&lt;/span&gt; Some &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;  
+    &lt;span class=&quot;token keyword&quot;&gt;open&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;fun&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;doSth&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; String &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;token keyword&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;main activity&quot;&lt;/span&gt;&lt;/span&gt;
+    &lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;token keyword&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;SomeInterceptor&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token keyword&quot;&gt;private&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; target&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Any&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; MethodInterceptor &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+
+    &lt;span class=&quot;token keyword&quot;&gt;override&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;fun&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;intercept&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;obj&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Any&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt; method&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Method&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt; args&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Array&lt;span class=&quot;token operator&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;token keyword&quot;&gt;out&lt;/span&gt; Any&lt;span class=&quot;token operator&quot;&gt;&gt;&lt;/span&gt;&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt; proxy&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; MethodProxy&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Any&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;token function&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;Before Action&quot;&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; result &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; method&lt;span class=&quot;token operator&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;invoke&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;target&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;token operator&quot;&gt;*&lt;/span&gt;args &lt;span class=&quot;token operator&quot;&gt;?:&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;arrayOf&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;token function&quot;&gt;println&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token string-literal singleline&quot;&gt;&lt;span class=&quot;token string&quot;&gt;&quot;After Action&quot;&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;token keyword&quot;&gt;return&lt;/span&gt; result
+    &lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;token keyword&quot;&gt;fun&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;main&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;args&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; Array&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; enhancer &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;Enhancer&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+    enhancer&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;setSuperclass&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;Some&lt;span class=&quot;token operator&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;token keyword&quot;&gt;class&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;java&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+    enhancer&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;setCallback&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;SomeInterceptor&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;target&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; proxy &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; enhancer&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;create&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;as&lt;/span&gt; Some
+    proxy&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;doSth&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;CGLIB 프록시는 대리 대상 클래스를 상속받아 함수를 오버라이딩 하여 생성하는 방식이기 때문에 대리 대상 클래스에는 기본 생성자가 꼭 필요하고 상속이 가능해야 한다.&lt;/p&gt;
+&lt;p&gt;자바는 final 키워드를 붙이기 전 까지는 상속이 가능하지만 코틀린은 기본적으로 final 클래스이기 때문에 아무런 변경자 없이 클래스를 선언하면 상속이 불가능하다. 따라서 코틀린에서 CGLIB 프록시를 사용하려면 대리 대상 클래스와 함수에 위 코드처럼 open 변경자를 잘 설정해야 한다.&lt;/p&gt;
+&lt;p&gt;peace!&lt;/p&gt;</content:encoded></item><item><title><![CDATA[동기와 비동기, 블로킹과 논블로킹]]></title><description><![CDATA[맨날 헷깔리는 이 두 세트를 알아보자]]></description><link>https://donsworkout.github.io/posts/async-nonblocking</link><guid isPermaLink="false">https://donsworkout.github.io/posts/async-nonblocking</guid><pubDate>Mon, 20 Feb 2023 22:12:03 GMT</pubDate><content:encoded>&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 832px; &quot;
+    &gt;
+      &lt;a
+    class=&quot;gatsby-resp-image-link&quot;
+    href=&quot;/static/ba428220d3e90d2fa03d025a1d97e327/ef6b9/figure1.png&quot;
+    style=&quot;display: block&quot;
+    target=&quot;_blank&quot;
+    rel=&quot;noopener&quot;
+  &gt;
+    &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 60.83333333333334%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAMCAYAAABiDJ37AAAACXBIWXMAABYlAAAWJQFJUiTwAAABzklEQVQoz21Sa2+bQBDk//+YVEGqnQ+J1DamjWltqx8qSzHGxQfmdRgMxgbzmGq3OgclXmnEirubndldDe+i7/trfrlckKYp8jz/cOdwOPBZkiQoy/J6ptHhEBRN0zCKooDjOIzz+cwF6rpmRFEEz/MghICUku93XQdtWFUhyzIcj0ecTqcrAeWkihSp/23bMqqq4uLkRBsqU8R0eCvoMZEN20HFSRkFExK7bdtsa7PZsDVFSFaWyyXW6zUrJlv0JTLLsmB8N2CaJlarFSumd6yQKgwxVDh00LYNqnP9X2HdoG+Bruk5Rw8u9mEohP1+z9YUaIr0LfICXriFLHzIIkCc+4gLH8kxQJi5SFL5NpRhUG/IgpqcclGVNebbZ3xz7zAROgxPh+HqmLg6vjp3ELENjR4RgWow9ZAU0QDUalB/wyhki8voF37KB8yTJ/zwRnjZjbFInmBGD9jtHWjU4CAIEMcxE1AfCBS0Y4vFArPZDL6/AzrgT2DCjMeYy0d8WX/C818d8+QR03AMjwhvWaZ9e79OPJRLj9+eASO4x0vwGdNohGk44nyyu4eQ9u2hDBf6DRWqqoafCojsFW5mQWQriMyCe7CwTV+Rlxn+AfxFk7TejaWmAAAAAElFTkSuQmCC&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/ba428220d3e90d2fa03d025a1d97e327/8ac56/figure1.webp 240w,
+/static/ba428220d3e90d2fa03d025a1d97e327/d3be9/figure1.webp 480w,
+/static/ba428220d3e90d2fa03d025a1d97e327/de44a/figure1.webp 832w&quot;
+              sizes=&quot;(max-width: 832px) 100vw, 832px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/ba428220d3e90d2fa03d025a1d97e327/8ff5a/figure1.png 240w,
+/static/ba428220d3e90d2fa03d025a1d97e327/e85cb/figure1.png 480w,
+/static/ba428220d3e90d2fa03d025a1d97e327/ef6b9/figure1.png 832w&quot;
+            sizes=&quot;(max-width: 832px) 100vw, 832px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/ba428220d3e90d2fa03d025a1d97e327/ef6b9/figure1.png&quot;
+            alt=&quot;restt&quot;
+            title=&quot;restt&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+  &lt;/a&gt;
+    &lt;/span&gt;&lt;/p&gt;
+&lt;h2 id=&quot;sync-vs-async&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#sync-vs-async&quot; aria-label=&quot;sync vs async permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Sync vs Async&lt;/h2&gt;
+&lt;p&gt;수많은 글을 읽어 보고 제가 느낀 동기와 비동기의 차이는 &lt;strong&gt;서브루틴의 결과값을 다루는 방식&lt;/strong&gt; 이며, &lt;strong&gt;서브루틴의 순서가 보장되는지 여부&lt;/strong&gt; 입니다.&lt;/p&gt;
+&lt;h3 id=&quot;sync-동기&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#sync-%EB%8F%99%EA%B8%B0&quot; aria-label=&quot;sync 동기 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;SYNC (동기)&lt;/h3&gt;
+&lt;p&gt;&lt;strong&gt;메인루틴&lt;/strong&gt; 에서 &lt;strong&gt;A, B, C 작업 (서브루틴)&lt;/strong&gt; 을 순서대로 호출한다고 가정 했을 때, 동기 방식은 메인루틴이 서브루틴에게 결과를 질의하여 응답을 받는 방식입니다. 동기 방식에서 메인루틴은 각각의 서브루틴 (A, B, C) 의 결과를 순서대로 질의하며 코드 상에서 먼저 기입된 서브루틴의 값부터 차례대로 받아 봅니다.&lt;/p&gt;
+&lt;p&gt;이렇게 되면 메인루틴의 흐름 내에서 서브루틴 작업의 순서가 &lt;code class=&quot;language-text&quot;&gt;A -&gt; B -&gt; C&lt;/code&gt; 로 보장 됩니다.&lt;/p&gt;
+&lt;h3 id=&quot;async-비동기&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#async-%EB%B9%84%EB%8F%99%EA%B8%B0&quot; aria-label=&quot;async 비동기 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;ASYNC (비동기)&lt;/h3&gt;
+&lt;p&gt;&lt;strong&gt;메인루틴&lt;/strong&gt; 에서 &lt;strong&gt;A, B, C 작업 (서브루틴)&lt;/strong&gt; 을 순서대로 호출한다고 가정 했을 때, 비동기 방식은 서브루틴이 메인루틴에게 callback 을 통하여 자신의 작업 결과를 알리는 방식입니다. 이 때 메인루틴은 서브루틴의 결과값에 관심을 두지 않고 서브루틴이 때가 되면 알려 주겠지 하고 자기 할일을 합니다. 당연히 서브루틴 A, B, C는 수행 시간이 다를 것이고, 누가 먼저인지에 상관 없이 메인루틴 A 에게 결과를 callback 으로 알릴 것입니다.&lt;/p&gt;
+&lt;p&gt;이렇게 되면 동기 방식과 달리 A 작업의 흐름 내에서 서브루틴 작업의 순서가 &lt;code class=&quot;language-text&quot;&gt;A -&gt; B -&gt; C&lt;/code&gt; 로 보장되지 않습니다.&lt;/p&gt;
+&lt;h2 id=&quot;blocking-vs-non-blocking&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#blocking-vs-non-blocking&quot; aria-label=&quot;blocking vs non blocking permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Blocking vs Non-Blocking&lt;/h2&gt;
+&lt;p&gt;메인루틴에서 프로그램의 제어권이 서브루틴으로 넘어 왔을 때, 서브루틴이 작업이 완료되기 전이지만 제어권을 바로 메인 루틴에게 돌려주는지 혹은 작업이 끝날때까지 메인 루틴을 대기시키는지에 관한 내용입니다.&lt;/p&gt;
+&lt;p&gt;통상적으로 &lt;strong&gt;Sync + Blocking&lt;/strong&gt; / &lt;strong&gt;Async + Non-Blocking&lt;/strong&gt; 방식의 조합으로 프로그램을 구성하기 때문에 두 짝궁의 개념이 혼동되는 경우가 많습니다.&lt;/p&gt;
+&lt;h3 id=&quot;blocking&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#blocking&quot; aria-label=&quot;blocking permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Blocking&lt;/h3&gt;
+&lt;p&gt;말 그대로 서브루틴이 메인루틴의 흐름을 Block 합니다. 즉 프로그램의 &lt;strong&gt;제어권&lt;/strong&gt;을 메인루틴에게 바로 돌려주지 않고 서브루틴의 작업이 끝날 때 까지 대기시킵니다. 이 시간동안 메인루틴은 아무 작업도 할 수 없습니다.&lt;/p&gt;
+&lt;h3 id=&quot;non-blocking&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#non-blocking&quot; aria-label=&quot;non blocking permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;Non-Blocking&lt;/h3&gt;
+&lt;p&gt;블로킹 방식과 달리, 작업이 완료가 되지 않았어도 프로그램의 &lt;strong&gt;제어권&lt;/strong&gt;을 메인루틴에게 바로 돌려줍니다. 바로 돌려주기 때문에 메인루틴은 서브루틴이 종료되지 않아도 자신이 할 일을 진행할 수 있습니다.&lt;/p&gt;
+&lt;h2 id=&quot;이-방식들의-조합&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#%EC%9D%B4-%EB%B0%A9%EC%8B%9D%EB%93%A4%EC%9D%98-%EC%A1%B0%ED%95%A9&quot; aria-label=&quot;이 방식들의 조합 permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;이 방식들의 조합&lt;/h2&gt;
+&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; &quot;
+    &gt;
+      &lt;a
+    class=&quot;gatsby-resp-image-link&quot;
+    href=&quot;/static/2af61198057b79629ddc94d813534a4e/eb1d2/comb.png&quot;
+    style=&quot;display: block&quot;
+    target=&quot;_blank&quot;
+    rel=&quot;noopener&quot;
+  &gt;
+    &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 59.166666666666664%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAMCAYAAABiDJ37AAAACXBIWXMAABYlAAAWJQFJUiTwAAAC3UlEQVQoz2WTXVMaZxiG/Y096A/o9LRHnelBNJ2mByFJrWOaaDEkThAwQizKl4iAIB8RMTKijIlIMbKwrLsrLKwK4evKAOnYmbwzz7xn11z3c88zATAYDIYfvV6fm1aHbh/UmsYnoUJDv6Xd7XPb7tButxj0O1ypl1TKn1DkKp/bN3Q6bbrd7ogxMYT1+2NgRb3Gnylj8aV47Y5jtAcwrYZxJfNEchXKJzb2An+wG5jGbbvPumWKmPcxUvZvNCXPkDIxMmT8yorOWkbknjXLcqLIa18a514e1/sCm4dlrs+N2P4x4febiHt+JbL2gEziCc7wjzTl3BjYbrepShL1mkqhJBNcjxO3eAhEjtjK6RjDb3ganCOUVRGSBhZmpll8buA4OcNJ7Cmhjd8wOL9Dl0/GwGHkXq83MhQUnW1HiLjVhy+aYzVWZD5kYdo/zfaHGs3oQ1yTk5h++ZmM7xGp0F8s2e4xu/Y9qnQ03uH/SxHkJvaUwKT1GFuyxNtkkfV9AXemjGf/Aq1g4qXdhsX+gvODOeKbfxJyGRCPH1OTcneGg35/BLySRM62nbxbXSTtMrPjeDmarH+Fi5Sf7McIkYSddMZFNLHCRnBpNJmcH0WT7gz5aqhLJdSYjedzy+xYn5FzzvF+ZRZ5exFt9y2Fy2NehdNYwzESRzuED6KkPu5xUj1EbqhjoK7rqKpCvakjn+e5dDzjzDhDftWIvOPE7XqAL3AffddD8d8EC7YtFt94cYbXWfau4dnzMh+dQtG+AoeFdDqdUX5NvEAxP+Gz9RE3ETMcuNnYnMLs+onrfR/FtA+HYZ7k0hKXpXdUGmeki35+d/+AeFX9NnJTvKC8ZebVCwfn3gUUzwyCdxYpbkaO2TkT9pl1RHFuBRFO/Xw4dHF6GuSwFEOqy3eX8l/Lrdtb5LJAvlBBqVSoSSJ1SUSriqhiGbVRQ1BqSHWN2nUDtVGnpjeo601uWq0R8AsyVDp/wPhcnwAAAABJRU5ErkJggg==&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/2af61198057b79629ddc94d813534a4e/8ac56/comb.webp 240w,
+/static/2af61198057b79629ddc94d813534a4e/d3be9/comb.webp 480w,
+/static/2af61198057b79629ddc94d813534a4e/e46b2/comb.webp 960w,
+/static/2af61198057b79629ddc94d813534a4e/f992d/comb.webp 1440w,
+/static/2af61198057b79629ddc94d813534a4e/b3a72/comb.webp 1622w&quot;
+              sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/2af61198057b79629ddc94d813534a4e/8ff5a/comb.png 240w,
+/static/2af61198057b79629ddc94d813534a4e/e85cb/comb.png 480w,
+/static/2af61198057b79629ddc94d813534a4e/d9199/comb.png 960w,
+/static/2af61198057b79629ddc94d813534a4e/07a9c/comb.png 1440w,
+/static/2af61198057b79629ddc94d813534a4e/eb1d2/comb.png 1622w&quot;
+            sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/2af61198057b79629ddc94d813534a4e/d9199/comb.png&quot;
+            alt=&quot;비동기 / 동기 / 블로킹 / 논블로킹 조합&quot;
+            title=&quot;비동기 / 동기 / 블로킹 / 논블로킹 조합&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+  &lt;/a&gt;
+    &lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;그림 출처 : &lt;a href=&quot;https://inpa.tistory.com/entry/%F0%9F%91%A9%E2%80%8D%F0%9F%92%BB-%EB%8F%99%EA%B8%B0%EB%B9%84%EB%8F%99%EA%B8%B0-%EB%B8%94%EB%A1%9C%ED%82%B9%EB%85%BC%EB%B8%94%EB%A1%9C%ED%82%B9-%EA%B0%9C%EB%85%90-%EC%A0%95%EB%A6%AC&quot; target=&quot;_blank&quot; rel=&quot;nofollow noopener noreferrer&quot;&gt;here&lt;/a&gt;&lt;/p&gt;
+&lt;h3 id=&quot;sync--blocking&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#sync--blocking&quot; aria-label=&quot;sync  blocking permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;SYNC + Blocking&lt;/h3&gt;
+&lt;p&gt;메인루틴이 서브루틴에게 처리 결과값을 질의하고, 제어권을 넘겨받은 서브루틴은 본인의 작업이 끝날 때 까지 제어권을 메인루틴에게 넘겨주지 않고 묵언 수행을 하다가 지 작업이 끝나서야 메인 루틴에게 결과값을 전달 합니다.&lt;/p&gt;
+&lt;p&gt;서브 루틴의 순서가 보장됩니다.&lt;/p&gt;
+&lt;h3 id=&quot;sync--non-blocking&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#sync--non-blocking&quot; aria-label=&quot;sync  non blocking permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;SYNC + Non-Blocking&lt;/h3&gt;
+&lt;p&gt;메인루틴이 서브루틴에게 처리 결과값을 질의하는 것은 1번 방식과 동일하지만, 2번 방식에서는 Non-Blocking 이기 때문에 서브루틴은 본인의 작업이 끝나지 않아도 메인 루틴에게 제어권을 바로 돌려줍니다.&lt;/p&gt;
+&lt;p&gt;그러면 메인 루틴은 제어권을 받아 메인 루틴 내의 자기 할일을 하긴 하는데, Sync 방식이라 서브 루틴에게 계속 결과를 질의합니다.&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;“다 했어?”&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;아직 작업을 마치지 못한 서브루틴 A 는&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;“아직 안 했어 ㅡㅡ 기다려”&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;라고 대답할 것이고,&lt;/p&gt;
+&lt;p&gt;순서가 보장되는 Sync 방식 메인루틴은 A 작업이 끝날때 까지 다른 서브루틴인 B, C 작업을 진행할 수 없기 때문에 A 작업이 끝날때까지 끈질기게 질의합니다.&lt;/p&gt;
+&lt;p&gt;마침내 서브루틴 A가&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;“A 작업 끝났어 (오운완)”&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;하자마자 다른 서브루틴(B, C) 을 순차로 처리합니다.&lt;/p&gt;
+&lt;h3 id=&quot;async--blocking&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#async--blocking&quot; aria-label=&quot;async  blocking permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;ASYNC + Blocking&lt;/h3&gt;
+&lt;p&gt;메인루틴은 서브루틴을 기다리지 않습니다. 다만 서브루틴이 종료될 때까지 프로그램의 제어권을 넘겨받지 못해 암것도 못합니다. 서브루틴 A가 콜백을 가져 갔으니 내가 신경쓸 필요 없다고 잘난척은 해 놨는데 막상 서브루틴이 제어권을 주지 않아서 결국엔 서브루틴 하나하나를 다 기다려야 하는 꼴입니다.&lt;/p&gt;
+&lt;p&gt;서브루틴의 순서가 의도치 않게 보장됩니다 ㅋㅋ&lt;/p&gt;
+&lt;h3 id=&quot;async--non-blocking&quot; style=&quot;position:relative;&quot;&gt;&lt;a href=&quot;#async--non-blocking&quot; aria-label=&quot;async  non blocking permalink&quot; class=&quot;anchor before&quot;&gt;&lt;svg aria-hidden=&quot;true&quot; focusable=&quot;false&quot; height=&quot;16&quot; version=&quot;1.1&quot; viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; d=&quot;M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/a&gt;ASYNC + Non-Blocking&lt;/h3&gt;
+&lt;p&gt;메인루틴은 서브루틴을 기다리지 않습니다. 게다가 서브루틴이 종료되지 않아도 프로그램의 제어권을 바로 넘겨받아 후행 서브루틴을 바로 진행할 수 있습니다.&lt;/p&gt;
+&lt;p&gt;서브루틴의 순서는 보장되지 않지만 효율적입니다.&lt;/p&gt;</content:encoded></item><item><title><![CDATA[restTemplate 의 setBufferRequestBody 옵션]]></title><description><![CDATA[restTemplate 에서 힙 메모리 터지면 이 원인]]></description><link>https://donsworkout.github.io/posts/resttemplate-setBufferRequestBody</link><guid isPermaLink="false">https://donsworkout.github.io/posts/resttemplate-setBufferRequestBody</guid><pubDate>Wed, 15 Feb 2023 22:40:32 GMT</pubDate><content:encoded>&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; &quot;
+    &gt;
+      &lt;a
+    class=&quot;gatsby-resp-image-link&quot;
+    href=&quot;/static/379aa81d779056e7cfa19514562d0f58/8cdda/restt.png&quot;
+    style=&quot;display: block&quot;
+    target=&quot;_blank&quot;
+    rel=&quot;noopener&quot;
+  &gt;
+    &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 49.583333333333336%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAKCAYAAAC0VX7mAAAACXBIWXMAABYlAAAWJQFJUiTwAAABTElEQVQoz4WRQUsCQRiG/WmS5C3q0l4UDSlk62w3wZMHwRI86S8okRY8GP6BtDBDjagFT60apSKGtqyOT+yasoWbL3zMx8zHO+8z48Km+XxulanBYICmaXQ6Hdrt9qq0toauf63m7aspl5NhLBbD7XYTCATw+Xz4/X6kfQnPlodKuWLNiJn4ZfavoZmu+dik/vSAqqq8qM/c1W+o1av0hh8YQkeImXNC+6a9nxgja52JKe/jV0ZGn6Heoz9+YyqMzchiLqw+kUjg3fYSCoWQZZlwOIwkSezu7HFfrS2QxT/IS9zlQOW2zGXugqtCnlKpRPG6SF7JoSgK3W53YfhzuSPy8uBTHzJlYoICButkplsnx0/JZrMED4Icn8hEo1EipxGOwocWeqPRcDR1RC4UCsTjcVLnKTKZDOl0mmTyzHrbVqu12fBv0k1ymvkGgcbeBrrFKT4AAAAASUVORK5CYII=&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/379aa81d779056e7cfa19514562d0f58/8ac56/restt.webp 240w,
+/static/379aa81d779056e7cfa19514562d0f58/d3be9/restt.webp 480w,
+/static/379aa81d779056e7cfa19514562d0f58/e46b2/restt.webp 960w,
+/static/379aa81d779056e7cfa19514562d0f58/2768a/restt.webp 1168w&quot;
+              sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/379aa81d779056e7cfa19514562d0f58/8ff5a/restt.png 240w,
+/static/379aa81d779056e7cfa19514562d0f58/e85cb/restt.png 480w,
+/static/379aa81d779056e7cfa19514562d0f58/d9199/restt.png 960w,
+/static/379aa81d779056e7cfa19514562d0f58/8cdda/restt.png 1168w&quot;
+            sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/379aa81d779056e7cfa19514562d0f58/d9199/restt.png&quot;
+            alt=&quot;restt&quot;
+            title=&quot;restt&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+  &lt;/a&gt;
+    &lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;얼마 전 배치를 사용하여 주기적으로 사내 오브젝트 스토리지에 대용량 파일을 업로드 해야 하는 요구사항이 있었다. 이번 요구사항은 그냥 한 파일을 진득하게 동기 방식으로 업로드만 하면 되었기에 블로킹 I/O 기반의 RestTemplate 을 사용하기로 했다.&lt;/p&gt;
+&lt;p&gt;그냥 아래처럼 하면 쉽게 풀릴 요구사항이였다.&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;쿼리를 잘 짜서 데이터를 청크 단위로 잘 읽고&lt;/li&gt;
+&lt;li&gt;암호화 처리 등 잘 가공해서&lt;/li&gt;
+&lt;li&gt;csv 파일로 write&lt;/li&gt;
+&lt;li&gt;REST API 방식으로 사내 오브젝트 storage 에 업로드&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;개발 환경에서 테스트 해 보니 별 문제 없이 파일이 생성 되었고 업로드도 잘 되었다.
+근데 이게 뭐람 실 환경에서 배치 Job이 힙 메모리 부족으로 실패를 하는 것..&lt;br&gt;
+웃긴건 개발 환경에서 성공했던 때 대상 데이터 개수와 실 환경 데이터 개수가 차이가 거의 없었는데도 실 환경에서만 메모리가 터지는 것이다 (Out of Memory error)&lt;/p&gt;
+&lt;p&gt;그래서 곰곰히 고민했을때&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;pod 메모리 설정 늘리기&lt;/li&gt;
+&lt;li&gt;업로드 전 파일 읽어들이는 방식 변경&lt;/li&gt;
+&lt;li&gt;RestTemplate 이 뭔가 이상하다..&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;1번을 고민하니 pod 메모리는 파일 용량에 비해 이미 충분했고 2번을 고민하니 업로드 할떄 파일은 InputStreamResource(청크 스트리밍 방식)로 효율적으로 잘 읽어 들이고 있어서 문제가 없어 보였다.&lt;/p&gt;
+&lt;p&gt;바로 3번을 의심하고 RestTemplate 의 모든 Config 옵션을 까보기 시작했다.
+그러다 발견한게 &lt;code class=&quot;language-text&quot;&gt;setBufferRequestBody&lt;/code&gt; 옵션.&lt;/p&gt;
+&lt;p&gt;&lt;code class=&quot;language-text&quot;&gt;setBufferRequestBody&lt;/code&gt; 옵션은 HTTP 요청 본문을 버퍼에 저장할지 여부를 설정하는 옵션이고, 요청 실패시 재 요청등에 사용하는 옵션인데, 공식 문서에 따르면 디폴트 값은 true이나 매우 큰 Response Body 가 들어오는 경우 false 로 세팅하기를 권장한다.&lt;/p&gt;
+&lt;p&gt;원문 :&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;Indicate whether this request factory should buffer the request body internally. Default is true. When sending large amounts of data via POST or PUT, it is recommended to change this property to false, so as not to run out of memory.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;이걸 보고 아래와 같이 설정을 하고 나니..&lt;/p&gt;
+&lt;div class=&quot;gatsby-highlight&quot; data-language=&quot;kotlin&quot;&gt;&lt;pre class=&quot;language-kotlin&quot;&gt;&lt;code class=&quot;language-kotlin&quot;&gt;&lt;span class=&quot;token keyword&quot;&gt;override&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;fun&lt;/span&gt; &lt;span class=&quot;token keyword&quot;&gt;get&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; ClientHttpRequestFactory &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;token keyword&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;token function&quot;&gt;HttpComponentsClientHttpRequestFactory&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;apply&lt;/span&gt; &lt;span class=&quot;token punctuation&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;token keyword&quot;&gt;val&lt;/span&gt; httpClient&lt;span class=&quot;token operator&quot;&gt;:&lt;/span&gt; HttpClient &lt;span class=&quot;token operator&quot;&gt;=&lt;/span&gt; HttpClientBuilder&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;create&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+            &lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;evictIdleConnections&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token number&quot;&gt;3L&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;,&lt;/span&gt; TimeUnit&lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;SECONDS&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+            &lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;evictExpiredConnections&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+            &lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;setMaxConnTotal&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token number&quot;&gt;200&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+            &lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;setMaxConnPerRoute&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token number&quot;&gt;200&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+            &lt;span class=&quot;token punctuation&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;token function&quot;&gt;build&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+
+        &lt;span class=&quot;token function&quot;&gt;setConnectTimeout&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token number&quot;&gt;3000&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;token function&quot;&gt;setReadTimeout&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token number&quot;&gt;20000&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;token function&quot;&gt;setHttpClient&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;httpClient&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;token function&quot;&gt;setBufferRequestBody&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;token boolean&quot;&gt;false&lt;/span&gt;&lt;span class=&quot;token punctuation&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;token punctuation&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;문제 없이 파일이 업로드 되었다.
+yoshi!&lt;/p&gt;</content:encoded></item><item><title><![CDATA[donsdev, 새로운 블로그 시작]]></title><description><![CDATA[기존 날아간 블로그는 잊고, 새로운 블로그를 시작하다]]></description><link>https://donsworkout.github.io/posts/donsdev-new-blog-open</link><guid isPermaLink="false">https://donsworkout.github.io/posts/donsdev-new-blog-open</guid><pubDate>Tue, 14 Feb 2023 23:46:37 GMT</pubDate><content:encoded>&lt;p&gt;기존 ruby on rails 로 만들어져 heroku 에 배포되어 있는 donsdev.me 어플리케이션이&lt;br&gt;
+postgres 유료화로 인해 DB 가 강제 detach 되면서 데이터가 모두 날아갔습니다…&lt;/p&gt;
+&lt;p&gt;&lt;span
+      class=&quot;gatsby-resp-image-wrapper&quot;
+      style=&quot;position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; &quot;
+    &gt;
+      &lt;a
+    class=&quot;gatsby-resp-image-link&quot;
+    href=&quot;/static/d00ada20f08d2ae8eb183582eb7e3d01/11a8f/detach.png&quot;
+    style=&quot;display: block&quot;
+    target=&quot;_blank&quot;
+    rel=&quot;noopener&quot;
+  &gt;
+    &lt;span
+    class=&quot;gatsby-resp-image-background-image&quot;
+    style=&quot;padding-bottom: 10%; position: relative; bottom: 0; left: 0; background-image: url(&apos;data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAACCAYAAABYBvyLAAAACXBIWXMAABYlAAAWJQFJUiTwAAAAZElEQVQI113GQQ7DIAxE0dz/oi2Q2B4DicCVpoJFF118vX+oKIHK/kye58WUCnMufL0TUy5UNQKgu1NEaGb7l8ASv1rrPOolbGK8R9C9Us1pcIpif78fRsRujME55/7lfxEffgFGdJm8wKxF6gAAAABJRU5ErkJggg==&apos;); background-size: cover; display: block;&quot;
+  &gt;&lt;/span&gt;
+  &lt;picture&gt;
+          &lt;source
+              srcset=&quot;/static/d00ada20f08d2ae8eb183582eb7e3d01/8ac56/detach.webp 240w,
+/static/d00ada20f08d2ae8eb183582eb7e3d01/d3be9/detach.webp 480w,
+/static/d00ada20f08d2ae8eb183582eb7e3d01/e46b2/detach.webp 960w,
+/static/d00ada20f08d2ae8eb183582eb7e3d01/4cec6/detach.webp 1272w&quot;
+              sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+              type=&quot;image/webp&quot;
+            /&gt;
+          &lt;source
+            srcset=&quot;/static/d00ada20f08d2ae8eb183582eb7e3d01/8ff5a/detach.png 240w,
+/static/d00ada20f08d2ae8eb183582eb7e3d01/e85cb/detach.png 480w,
+/static/d00ada20f08d2ae8eb183582eb7e3d01/d9199/detach.png 960w,
+/static/d00ada20f08d2ae8eb183582eb7e3d01/11a8f/detach.png 1272w&quot;
+            sizes=&quot;(max-width: 960px) 100vw, 960px&quot;
+            type=&quot;image/png&quot;
+          /&gt;
+          &lt;img
+            class=&quot;gatsby-resp-image-image&quot;
+            src=&quot;/static/d00ada20f08d2ae8eb183582eb7e3d01/d9199/detach.png&quot;
+            alt=&quot;DETACH 청천벽력&quot;
+            title=&quot;DETACH 청천벽력&quot;
+            loading=&quot;lazy&quot;
+            decoding=&quot;async&quot;
+            style=&quot;width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;&quot;
+          /&gt;
+        &lt;/picture&gt;
+  &lt;/a&gt;
+    &lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;조금만 일찍 메일을 봤었더라면..&lt;br&gt;
+메일을 무시하지 않았더라면..&lt;/p&gt;
+&lt;p&gt;수많은 글들이 날아가지 않을 수 있었는데…&lt;br&gt;
+그는 떠나갔습니다.&lt;/p&gt;
+&lt;p&gt;그래서 여기에서 다시 시작하려고 합니다.
+남아있는 데이터를 모아 글도 채우고 새로운 글도 자주 자주 써 볼랍니다.&lt;/p&gt;
+&lt;p&gt;그냥 블로그는 DB 없이 static 리소스로만 호스팅 하는게 맞지 않나 싶소&lt;br&gt;
+그래서 리액트와 갯츠비를 이용해 블로그를 빌드 해 볼까 하오&lt;/p&gt;
+&lt;p&gt;헤로쿠 xxx ..&lt;br&gt;
+차라리 그때 AWS 쓸껄 ..&lt;/p&gt;</content:encoded></item></channel></rss>

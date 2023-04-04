@@ -1,0 +1,513 @@
+<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta http-equiv="x-ua-compatible" content="ie=edge"/><meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/><meta name="generator" content="Gatsby 4.25.6"/><meta name="description" content="리플렉션 도입은 신중히 고려해야 한다, 특히 처리할 데이터가 많을때" data-gatsby-head="true"/><meta name="twitter:card" content="summary_large_image" data-gatsby-head="true"/><meta name="twitter:title" content="다량의 데이터 조회 시 리플렉션을 이용한 역직렬화 성능 - Donsdev blog" data-gatsby-head="true"/><meta name="twitter:description" content="리플렉션 도입은 신중히 고려해야 한다, 특히 처리할 데이터가 많을때" data-gatsby-head="true"/><meta name="og:title" content="다량의 데이터 조회 시 리플렉션을 이용한 역직렬화 성능 - Donsdev blog" data-gatsby-head="true"/><meta name="og:type" content="website" data-gatsby-head="true"/><meta name="og:description" content="리플렉션 도입은 신중히 고려해야 한다, 특히 처리할 데이터가 많을때" data-gatsby-head="true"/><meta name="theme-color" content="hsl(31, 92%, 62%)"/><style data-href="/styles.86ebe5530c8ea28deed8.css" data-identity="gatsby-global-css">:after,:before,:root{--color-white:#fff;--color-primary:#5c92ff;--color-secondary:#f7a145;--color-prism-background:#eaeaeb;--color-typographic-base-font:#242933;--color-typographic-link-p-font:#5c92ff;--color-typographic-link-s-font:#f7a145;--color-page-border:#eaeaeb;--color-page-background:#fff;--color-sidebar-border:#eaeaeb;--color-sidebar-border-fade:#fff;--color-contacts-border:#eaeaeb;--color-button-border:#eaeaeb;--color-button-color:#242933;--color-theme-switcher:#3f485a;--color-theme-switcher-hover:#5c92ff}.dark :after,.dark :before,:root.dark{--color-white:#fff;--color-primary:#5c92ff;--color-secondary:#f7a145;--color-prism-background:#191d24;--color-typographic-base-font:#fff;--color-typographic-link-p-font:#5c92ff;--color-typographic-link-s-font:#f7a145;--color-page-border:#3f485a;--color-page-background:#242933;--color-sidebar-border:#3f485a;--color-sidebar-border-fade:#242933;--color-contacts-border:#3f485a;--color-button-border:#3f485a;--color-button-color:#fff;--color-theme-switcher:#eaeaeb;--color-theme-switcher-hover:#5c92ff}html{font-size:100}body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;-ms-text-size-adjust:100%;-webkit-text-size-adjust:100%;background:var(--color-page-background);color:var(--color-typographic-base-font);font-size:16px;line-height:1.625;margin:0 0 0 calc(100vw - 100%);text-rendering:optimizelegibility}body,h1,h2,h3,h4,h5,h6{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif}h1,h2,h3,h4,h5,h6{font-weight:600}h1{font-size:40px;line-height:52px;margin-bottom:26px;margin-top:104px}h2{font-size:27px;line-height:39px}h2,h3{margin-bottom:13px;margin-top:52px}h3{font-size:22px;line-height:26px}h4{font-size:19.2px;margin-top:39px}h4,h5{line-height:26px;margin-bottom:13px}h5,h6{font-size:16px;margin-top:65px}h6{line-height:26px;margin-bottom:13px}img{max-width:100%}hr,img{border:0;display:block}hr{background-image:linear-gradient(180deg,transparent 1px,transparent 11px,#242933 0,#242933 15px,transparent 0,transparent 26px);background-size:100% 26px;color:var(--color-typographic-base-font);height:26px;margin:52px auto;width:100px}a{color:var(--color-typographic-link-p-font);text-decoration:none}a:active,a:focus,a:hover{color:var(--color-typographic-link-s-font)}b,strong{font-weight:600}ul{list-style:square;margin-bottom:26px}ul li{margin-bottom:10px;padding:0 5px}p{line-height:26px;margin-bottom:26px}blockquote{font-style:italic;padding:0;text-align:center}figure{display:block;height:auto;width:100%}figcaption{color:var(--color-typographic-base-font);font-size:14px;font-style:italic;line-height:19.5px;margin-bottom:0;margin-top:6.5px;text-align:center}@media screen and (min-width:685px){figure.float-left,figure.float-right{max-width:310px;padding:0 26px}.float-right{float:right}.float-left{float:left}}code[class*=language-],pre[class*=language-]{word-wrap:normal;color:#657b83;font-family:Consolas,Monaco,Andale Mono,Ubuntu Mono,monospace;font-size:1em;-webkit-hyphens:none;hyphens:none;line-height:1.5;-o-tab-size:4;tab-size:4;text-align:left;white-space:pre;word-break:normal;word-spacing:normal}pre[class*=language-]{border-radius:.3em;margin:.5em 0;overflow:auto;padding:1em}:not(pre)>code[class*=language-],pre[class*=language-]{background-color:var(--color-prism-background)}:not(pre)>code[class*=language-]{border-radius:.3em;padding:.1em}code[class*=language-] ::selection,code[class*=language-]::selection,pre[class*=language-] ::selection,pre[class*=language-]::selection{background:#073642}.token.cdata,.token.comment,.token.doctype,.token.prolog{color:#93a1a1}.token.punctuation{color:#586e75}.namespace{opacity:.7}.token.boolean,.token.constant,.token.deleted,.token.number,.token.property,.token.symbol,.token.tag{color:#268bd2}.token.attr-name,.token.builtin,.token.char,.token.inserted,.token.selector,.token.string,.token.url{color:#2aa198}.token.entity{background:#eee8d5;color:#657b83;cursor:help}.token.atrule,.token.attr-value,.token.keyword{color:#859900}.token.class-name,.token.function{color:#b58900}.token.important,.token.regex,.token.variable{color:#cb4b16}.token.bold,.token.important{font-weight:700}.token.italic{font-style:italic}.Feed-module--feed--a6204 .Feed-module--item--c7a63{margin-bottom:32.5px}.Feed-module--feed--a6204 .Feed-module--item--c7a63:last-child{margin-bottom:13px}.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--title--f252f{font-size:27px;line-height:39px;margin-bottom:13px;margin-top:0}.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--title--f252f .Feed-module--link--6123b{color:var(--color-typographic-base-font)}.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--title--f252f .Feed-module--link--6123b:focus,.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--title--f252f .Feed-module--link--6123b:hover{border-bottom:1px solid #242933;color:var(--color-typographic-base-font)}.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--description--57348{font-size:16px;line-height:26px;margin-bottom:19.5px}.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--meta--250c2 .Feed-module--time--72864{color:var(--color-typographic-base-font);font-size:14px;font-weight:600;text-transform:uppercase}.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--meta--250c2 .Feed-module--divider--81a18{margin:0 13px}.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--meta--250c2 .Feed-module--category--59f58 .Feed-module--link--6123b{color:var(--color-secondary);font-size:14px;font-weight:600;text-transform:uppercase}.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--meta--250c2 .Feed-module--category--59f58 .Feed-module--link--6123b:focus,.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--meta--250c2 .Feed-module--category--59f58 .Feed-module--link--6123b:hover{color:#5c92ff}.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--more--51a4e{color:var(--color-primary);font-size:16px}.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--more--51a4e:focus,.Feed-module--feed--a6204 .Feed-module--item--c7a63 .Feed-module--more--51a4e:hover{border-bottom:1px solid #5c92ff;color:var(--color-primary)}.Layout-module--layout--2c933{margin-left:auto;margin-right:auto;max-width:1070px}.Layout-module--layout--2c933:before{content:"";display:table}.Layout-module--layout--2c933:after{clear:both;content:"";display:table}.Page-module--page--24e03{margin-bottom:52px}.Page-module--page--24e03 .Page-module--inner--4b31d{padding:26px 19.5px 0}.Page-module--page--24e03 .Page-module--title--90338{font-size:40px;font-weight:600;line-height:52px;margin-bottom:37.7px;margin-top:0}.Page-module--page--24e03 .Page-module--body--561c4{font-size:16px;line-height:26px;margin:0 0 26px}@media screen and (min-width:685px){.Page-module--page--24e03{width:calc(58.275% - 12.5px)}.Page-module--page--24e03:nth-child(1n){clear:none;float:left;margin-right:30px}.Page-module--page--24e03:last-child{margin-right:0}.Page-module--page--24e03:nth-child(12n){float:right;margin-right:0}.Page-module--page--24e03:nth-child(12n+1){clear:both}.Page-module--page--24e03 .Page-module--inner--4b31d{padding:32.5px 19.5px 0}}@media screen and (min-width:960px){.Page-module--page--24e03{width:calc(66.6% - 10px)}.Page-module--page--24e03:nth-child(1n){clear:none;float:left;margin-right:30px}.Page-module--page--24e03:last-child{margin-right:0}.Page-module--page--24e03:nth-child(3n){float:right;margin-right:0}.Page-module--page--24e03:nth-child(3n+1){clear:both}.Page-module--page--24e03 .Page-module--inner--4b31d{padding:39px 26px 0}}.Pagination-module--pagination--d61cb{display:flex;margin-top:52px}.Pagination-module--pagination--d61cb .Pagination-module--previous--4a76b{text-align:left;width:50%}.Pagination-module--pagination--d61cb .Pagination-module--previous--4a76b .Pagination-module--previousLink--5590d{color:var(--color-secondary);font-size:26px;font-weight:700}.Pagination-module--pagination--d61cb .Pagination-module--previous--4a76b .Pagination-module--previousLink--5590d:focus,.Pagination-module--pagination--d61cb .Pagination-module--previous--4a76b .Pagination-module--previousLink--5590d:hover{color:var(--color-primary)}.Pagination-module--pagination--d61cb .Pagination-module--previous--4a76b .Pagination-module--previousLink--5590d.Pagination-module--disable--7e105{color:#3f485a;pointer-events:none}.Pagination-module--pagination--d61cb .Pagination-module--next--1cab8{text-align:right;width:50%}.Pagination-module--pagination--d61cb .Pagination-module--next--1cab8 .Pagination-module--nextLink--532ff{color:var(--color-secondary);font-size:26px;font-weight:700}.Pagination-module--pagination--d61cb .Pagination-module--next--1cab8 .Pagination-module--nextLink--532ff:focus,.Pagination-module--pagination--d61cb .Pagination-module--next--1cab8 .Pagination-module--nextLink--532ff:hover{color:var(--color-primary)}.Pagination-module--pagination--d61cb .Pagination-module--next--1cab8 .Pagination-module--nextLink--532ff.Pagination-module--disable--7e105{color:#3f485a;pointer-events:none}.Button-module--button--b1113{border:1px solid var(--color-button-border);border-radius:20px;color:var(--color-button-color);display:inline-block;font-size:16px;font-weight:400;height:40px;line-height:40px;margin-left:auto;margin-right:auto;padding:0 26px;text-align:center;text-decoration:none}.Button-module--button--b1113:focus,.Button-module--button--b1113:hover{color:#5c92ff}.ThemeSwitcher-module--themeSwitcher--8a77f{--color:var(--color-theme-switcher)}.ThemeSwitcher-module--themeSwitcher--8a77f .ThemeSwitcher-module--button--7cb7b{align-items:center;background:transparent;border:0;cursor:pointer;display:flex;justify-content:center;outline:0}.ThemeSwitcher-module--themeSwitcher--8a77f .ThemeSwitcher-module--button--7cb7b svg{stroke:var(--color);pointer-events:none;transition:stroke .4s}.ThemeSwitcher-module--themeSwitcher--8a77f .ThemeSwitcher-module--button--7cb7b:hover{--color:var(--color-theme-switcher-hover)}.ThemeSwitcher-module--themeSwitcher--8a77f .ThemeSwitcher-module--moon--10537{stroke-dasharray:0 1px;opacity:0;transition:stroke-dasharray .2s ease-in,opacity .4s ease-in}.ThemeSwitcher-module--themeSwitcher--8a77f .ThemeSwitcher-module--sun--2163a{stroke-dasharray:1px 1px;opacity:1;transition:stroke-dasharray .2s ease-in,opacity .4s ease-in}.ThemeSwitcher-module--themeSwitcher--8a77f.ThemeSwitcher-module--dark--6db0c .ThemeSwitcher-module--moon--10537{stroke-dasharray:1px 1px;opacity:1}.ThemeSwitcher-module--themeSwitcher--8a77f.ThemeSwitcher-module--dark--6db0c .ThemeSwitcher-module--sun--2163a{stroke-dasharray:0 1px;opacity:0}.Author-module--author--cbd31 .Author-module--photo--9787b{background-clip:padding-box;border-radius:50%;display:inline-block;height:75px;margin-bottom:0;width:75px}.Author-module--author--cbd31 .Author-module--photo--9787b img{border-radius:50%}.Author-module--author--cbd31 .Author-module--title--cf7e5{font-size:18px;font-weight:600;line-height:29.25px;margin:0}.Author-module--author--cbd31 .Author-module--title--cf7e5 .Author-module--link--09c17,.Author-module--author--cbd31 .Author-module--title--cf7e5 .Author-module--link--09c17:focus,.Author-module--author--cbd31 .Author-module--title--cf7e5 .Author-module--link--09c17:hover{color:var(--color-typographic-base-font)}.Author-module--author--cbd31 .Author-module--subtitle--86ec5{color:#7f8ba4;line-height:26px;margin-bottom:26px}.Author-module--author--cbd31 .Author-module--titleContainer--4f576{align-items:center;display:flex;justify-content:space-between;margin:13px 0}.Icon-module--icon--1d7da{fill:currentcolor;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;speak:none;stroke:currentcolor;stroke-width:0;display:inline-block;font-style:normal;font-variant:normal;font-weight:400;height:1em;line-height:1em;text-align:center;text-transform:none;width:1em}.Contacts-module--contacts--09178{margin-bottom:26px}.Contacts-module--contacts--09178 .Contacts-module--list--9670b{display:flex;flex-flow:row wrap;flex-grow:0;flex-shrink:0;list-style:none;margin:13px 0;max-width:165px;padding:0}.Contacts-module--contacts--09178 .Contacts-module--list--9670b .Contacts-module--item--f9cb0{align-content:center;align-items:center;border:1px solid var(--color-contacts-border);border-radius:50%;display:flex;height:40px;justify-content:center;line-height:40px;margin:6.5px;padding:0;text-align:center;width:40px}.Contacts-module--contacts--09178 .Contacts-module--list--9670b .Contacts-module--item--f9cb0:nth-child(3n+1){margin-left:0}.Contacts-module--contacts--09178 .Contacts-module--list--9670b .Contacts-module--item--f9cb0 .Contacts-module--link--de1e0{border:0;color:var(--color-typographic-base-font);cursor:pointer;display:flex}.Contacts-module--contacts--09178 .Contacts-module--list--9670b .Contacts-module--item--f9cb0 .Contacts-module--link--de1e0:focus,.Contacts-module--contacts--09178 .Contacts-module--list--9670b .Contacts-module--item--f9cb0 .Contacts-module--link--de1e0:hover{color:var(--color-typographic-link-p-font)}.Copyright-module--copyright--2c602{color:#7f8ba4;font-size:14px}.Menu-module--menu--113a9{margin-bottom:26px}.Menu-module--menu--113a9 .Menu-module--list--e1ae3{list-style:none;margin:0;padding:0}.Menu-module--menu--113a9 .Menu-module--list--e1ae3 .Menu-module--item--8b679{margin:13px 0;padding:0}.Menu-module--menu--113a9 .Menu-module--list--e1ae3 .Menu-module--item--8b679 .Menu-module--link--a6f02{border:0;color:var(--color-typographic-base-font);font-size:16px;font-weight:400}.Menu-module--menu--113a9 .Menu-module--list--e1ae3 .Menu-module--item--8b679 .Menu-module--link--a6f02:focus,.Menu-module--menu--113a9 .Menu-module--list--e1ae3 .Menu-module--item--8b679 .Menu-module--link--a6f02:hover{border-bottom:1px solid #5c92ff;color:#5c92ff}.Menu-module--menu--113a9 .Menu-module--list--e1ae3 .Menu-module--item--8b679 .Menu-module--link--a6f02.Menu-module--active--6cb74{border-bottom:1px solid var(--color-typographic-base-font);color:var(--color-typographic-base-font)}.Sidebar-module--sidebar--1bfa1{width:100%}.Sidebar-module--sidebar--1bfa1 .Sidebar-module--inner--344d0{padding:26px 19.5px 0;position:relative}.Sidebar-module--sidebar--1bfa1 .Sidebar-module--inner--344d0:after{background:var(--color-sidebar-border);background:linear-gradient(to bottom,var(--color-sidebar-border) 0,var(--color-sidebar-border) 48%,var(--color-sidebar-border-fade) 100%)}@media screen and (min-width:685px){.Sidebar-module--sidebar--1bfa1{width:calc(41.625% - 17.5px)}.Sidebar-module--sidebar--1bfa1:nth-child(1n){clear:none;float:left;margin-right:30px}.Sidebar-module--sidebar--1bfa1:last-child{margin-right:0}.Sidebar-module--sidebar--1bfa1:nth-child(12n){float:right;margin-right:0}.Sidebar-module--sidebar--1bfa1:nth-child(12n+1){clear:both}.Sidebar-module--sidebar--1bfa1 .Sidebar-module--inner--344d0{padding:32.5px 19.5px 0}.Sidebar-module--sidebar--1bfa1 .Sidebar-module--inner--344d0:after{bottom:0;content:"";height:540px;position:absolute;right:-10px;top:30px;width:1px}}@media screen and (min-width:960px){.Sidebar-module--sidebar--1bfa1{width:calc(33.3% - 20px)}.Sidebar-module--sidebar--1bfa1:nth-child(1n){clear:none;float:left;margin-right:30px}.Sidebar-module--sidebar--1bfa1:last-child{margin-right:0}.Sidebar-module--sidebar--1bfa1:nth-child(3n){float:right;margin-right:0}.Sidebar-module--sidebar--1bfa1:nth-child(3n+1){clear:both}.Sidebar-module--sidebar--1bfa1 .Sidebar-module--inner--344d0{padding:39px}}.Author-module--author--1c58d{border-top:1px solid var(--color-page-border);line-height:26px;margin-bottom:52px;margin-top:26px;max-width:640px;padding-top:26px}.Author-module--author--1c58d .Author-module--bio--08950 .Author-module--instagram--d262c{display:block;text-decoration:underline}.Author-module--author--1c58d .Author-module--bio--08950 .Author-module--instagram--d262c:focus,.Author-module--author--1c58d .Author-module--bio--08950 .Author-module--instagram--d262c:hover{color:var(--color-typographic-link-s-font)}@media screen and (min-width:685px){.Author-module--author--1c58d{margin-left:auto;margin-right:auto}}.Content-module--content--80d58{margin:0 auto;max-width:945px;padding:0 13px}.Content-module--content--80d58 .Content-module--title--09504{font-size:32px;font-weight:600;line-height:42.9px;margin:26px auto 0;max-width:640px;text-align:center}.Content-module--content--80d58 .Content-module--body--726c2 figure{margin-bottom:26px}.Content-module--content--80d58 .Content-module--body--726c2 figure blockquote{font-style:italic;margin-top:0;padding:26px 0;text-align:center}.Content-module--content--80d58 .Content-module--body--726c2 figure blockquote p{font-size:26.9072px;line-height:39px;margin-bottom:26px;margin-top:0;max-width:640px}.Content-module--content--80d58 .Content-module--body--726c2 a{text-decoration:underline}.Content-module--content--80d58 .Content-module--body--726c2 *{margin-left:auto;margin-right:auto;max-width:640px}.Content-module--content--80d58 .Content-module--body--726c2 h2>a{visibility:hidden}.Content-module--content--80d58 .Content-module--body--726c2 h2>a>svg{fill:var(--color-typographic-base-font)}.Content-module--content--80d58 .Content-module--body--726c2 img{max-width:100%}@media screen and (min-width:960px){.Content-module--content--80d58{padding:0}.Content-module--content--80d58 .Content-module--title--09504{font-size:48px;line-height:58.5px;margin-bottom:39px;margin-top:58.5px}.Content-module--content--80d58 .Content-module--body--726c2,.Content-module--content--80d58 .Content-module--body--726c2 p{font-size:18px;line-height:29.25px;margin-bottom:29.25px}.Content-module--content--80d58 .Content-module--body--726c2 h2>a{padding-right:13px;visibility:unset}}.Meta-module--meta--dae0a .Meta-module--date--4d30d{font-style:italic}.Tags-module--tags--18589{margin-bottom:13px}.Tags-module--tags--18589 .Tags-module--list--82ae6{list-style:none;padding:0}.Tags-module--tags--18589 .Tags-module--list--82ae6 .Tags-module--item--52015{display:inline-block;margin:6.5px 0}@media screen and (min-width:685px){.Tags-module--tags--18589 .Tags-module--list--82ae6 .Tags-module--item--52015:first-child{margin-left:0;padding-left:0}}@font-face{font-family:D2Coding;font-style:normal;font-weight:400;src:url(https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_three@1.0/D2Coding.woff) format("woff")}.Post-module--post--3a994 .Post-module--content--3c6e5{margin:0 auto}.Post-module--post--3a994 .Post-module--comments--d3b99,.Post-module--post--3a994 .Post-module--footer--f8705{margin:0 auto;max-width:640px;padding:0 13px}.Post-module--post--3a994 .Post-module--buttons--2972d{align-items:center;display:flex;justify-content:center;margin:26px 0 0;text-align:center}.Post-module--post--3a994 .Post-module--buttons--2972d .Post-module--buttonArticles--d793a{margin:0 13px 0 0}.Post-module--post--3a994 code{font-family:D2Coding;font-size:.9rem}@media screen and (min-width:960px){.Post-module--post--3a994 .Post-module--comments--d3b99,.Post-module--post--3a994 .Post-module--footer--f8705{padding:0}.Post-module--post--3a994 .Post-module--buttons--2972d{left:30px;margin:0 13px 0 0;max-width:none;position:fixed;top:30px}}</style><title data-gatsby-head="true">다량의 데이터 조회 시 리플렉션을 이용한 역직렬화 성능 - Donsdev blog</title><link rel="alternate" type="application/rss+xml" title="Donsdev blog" href="/rss.xml"/><style type="text/css">
+    .anchor.before {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform: translateX(-100%);
+      padding-right: 4px;
+    }
+    .anchor.after {
+      display: inline-block;
+      padding-left: 4px;
+    }
+    h1 .anchor svg,
+    h2 .anchor svg,
+    h3 .anchor svg,
+    h4 .anchor svg,
+    h5 .anchor svg,
+    h6 .anchor svg {
+      visibility: hidden;
+    }
+    h1:hover .anchor svg,
+    h2:hover .anchor svg,
+    h3:hover .anchor svg,
+    h4:hover .anchor svg,
+    h5:hover .anchor svg,
+    h6:hover .anchor svg,
+    h1 .anchor:focus svg,
+    h2 .anchor:focus svg,
+    h3 .anchor:focus svg,
+    h4 .anchor:focus svg,
+    h5 .anchor:focus svg,
+    h6 .anchor:focus svg {
+      visibility: visible;
+    }
+  </style><script>
+    document.addEventListener("DOMContentLoaded", function(event) {
+      var hash = window.decodeURI(location.hash.replace('#', ''))
+      if (hash !== '') {
+        var element = document.getElementById(hash)
+        if (element) {
+          var scrollTop = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop
+          var clientTop = document.documentElement.clientTop || document.body.clientTop || 0
+          var offset = element.getBoundingClientRect().top + scrollTop - clientTop
+          // Wait for the browser to finish rendering before scrolling.
+          setTimeout((function() {
+            window.scrollTo(0, offset - 0)
+          }), 0)
+        }
+      }
+    })
+  </script><link rel="preconnect" href="https://www.googletagmanager.com"/><link rel="dns-prefetch" href="https://www.googletagmanager.com"/><script async="" src="https://www.googletagmanager.com/gtag/js?id=G-9MM072ZW77"></script><script>
+      
+      
+      if(true) {
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){window.dataLayer && window.dataLayer.push(arguments);}
+        gtag('js', new Date());
+
+        gtag('config', 'G-9MM072ZW77', {"send_page_view":false});
+      }
+      </script><link rel="sitemap" type="application/xml" href="/sitemap/sitemap-index.xml"/><link rel="icon" href="/favicon-32x32.png?v=974d3a07a94e70e8479fd744369449f7" type="image/png"/><link rel="manifest" href="/manifest.webmanifest" crossorigin="anonymous"/><link rel="apple-touch-icon" sizes="48x48" href="/icons/icon-48x48.png?v=974d3a07a94e70e8479fd744369449f7"/><link rel="apple-touch-icon" sizes="72x72" href="/icons/icon-72x72.png?v=974d3a07a94e70e8479fd744369449f7"/><link rel="apple-touch-icon" sizes="96x96" href="/icons/icon-96x96.png?v=974d3a07a94e70e8479fd744369449f7"/><link rel="apple-touch-icon" sizes="144x144" href="/icons/icon-144x144.png?v=974d3a07a94e70e8479fd744369449f7"/><link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192x192.png?v=974d3a07a94e70e8479fd744369449f7"/><link rel="apple-touch-icon" sizes="256x256" href="/icons/icon-256x256.png?v=974d3a07a94e70e8479fd744369449f7"/><link rel="apple-touch-icon" sizes="384x384" href="/icons/icon-384x384.png?v=974d3a07a94e70e8479fd744369449f7"/><link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512x512.png?v=974d3a07a94e70e8479fd744369449f7"/><style>.gatsby-image-wrapper{position:relative;overflow:hidden}.gatsby-image-wrapper picture.object-fit-polyfill{position:static!important}.gatsby-image-wrapper img{bottom:0;height:100%;left:0;margin:0;max-width:none;padding:0;position:absolute;right:0;top:0;width:100%;object-fit:cover}.gatsby-image-wrapper [data-main-image]{opacity:0;transform:translateZ(0);transition:opacity .25s linear;will-change:opacity}.gatsby-image-wrapper-constrained{display:inline-block;vertical-align:top}</style><noscript><style>.gatsby-image-wrapper noscript [data-main-image]{opacity:1!important}.gatsby-image-wrapper [data-placeholder-image]{opacity:0!important}</style></noscript><script type="module">const e="undefined"!=typeof HTMLImageElement&&"loading"in HTMLImageElement.prototype;e&&document.body.addEventListener("load",(function(e){const t=e.target;if(void 0===t.dataset.mainImage)return;if(void 0===t.dataset.gatsbyImageSsr)return;let a=null,n=t;for(;null===a&&n;)void 0!==n.parentNode.dataset.gatsbyImageWrapper&&(a=n.parentNode),n=n.parentNode;const o=a.querySelector("[data-placeholder-image]"),r=new Image;r.src=t.currentSrc,r.decode().catch((()=>{})).then((()=>{t.style.opacity=1,o&&(o.style.opacity=0,o.style.transition="opacity 500ms linear")}))}),!0);</script></head><body><script>
+          void function() {
+            var cachedMode;
+
+            try {
+              var preferredTheme = JSON.parse(localStorage.getItem('diesel:theme-atom'));
+
+              if (preferredTheme && preferredTheme.mode) {
+                cachedMode = preferredTheme.mode;
+              }
+            } catch (err) { }
+
+            function setTheme(newTheme) {
+              document.documentElement.className = newTheme;
+            }
+
+            var darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+            setTheme(cachedMode || (darkQuery.matches ? 'dark' : 'light'));
+          }()
+        </script><div id="___gatsby"><div style="outline:none" tabindex="-1" id="gatsby-focus-wrapper"><div class="Layout-module--layout--2c933"><div class="Post-module--post--3a994"><div class="Post-module--buttons--2972d"><a class="Button-module--button--b1113 Post-module--buttonArticles--d793a" href="/">All Articles</a></div><div class="Post-module--content--3c6e5"><div class="Content-module--content--80d58"><h1 class="Content-module--title--09504">다량의 데이터 조회 시 리플렉션을 이용한 역직렬화 성능</h1><div class="Content-module--body--726c2"><p>얼마 전 맡아 개발한 API 쪽에서 1000건 이상의 데이터 동시 요청 시,<br>
+Slow Query 가 발생한 것도 아닌데 응답이 느려지고 한 pod 에서 CPU 가 spike 를 쳤던 현상이 있었습니다.</p>
+<p>한 pod 에서만 해당 현상이 발생하였는데 빠르게 발견하고 대응하여 장애로 이어지지는 않았지만, 원인을 파악하는데 애 좀 먹었습니다.</p>
+<h2 id="1-상황-설명" style="position:relative;"><a href="#1-%EC%83%81%ED%99%A9-%EC%84%A4%EB%AA%85" aria-label="1 상황 설명 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>1. 상황 설명</h2>
+<h3 id="1-목록-조회성-api-전체-지연-발생" style="position:relative;"><a href="#1-%EB%AA%A9%EB%A1%9D-%EC%A1%B0%ED%9A%8C%EC%84%B1-api-%EC%A0%84%EC%B2%B4-%EC%A7%80%EC%97%B0-%EB%B0%9C%EC%83%9D" aria-label="1 목록 조회성 api 전체 지연 발생 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>(1) 목록 조회성 API 전체 지연 발생</h3>
+<ul>
+<li>데이터 목록 내려주는 API</li>
+<li>목록을 집계해서 내려주는 API</li>
+</ul>
+<h3 id="2-pod-1개가-cpu-100-도달" style="position:relative;"><a href="#2-pod-1%EA%B0%9C%EA%B0%80-cpu-100-%EB%8F%84%EB%8B%AC" aria-label="2 pod 1개가 cpu 100 도달 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>(2) Pod 1개가 CPU 100% 도달</h3>
+<p><span
+      class="gatsby-resp-image-wrapper"
+      style="position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; "
+    >
+      <a
+    class="gatsby-resp-image-link"
+    href="/static/4a4f7e951f831018f1ae85958da4ccbe/1acf3/pod1.png"
+    style="display: block"
+    target="_blank"
+    rel="noopener"
+  >
+    <span
+    class="gatsby-resp-image-background-image"
+    style="padding-bottom: 43.333333333333336%; position: relative; bottom: 0; left: 0; background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAJCAYAAAAywQxIAAAACXBIWXMAAAsTAAALEwEAmpwYAAABX0lEQVQoz02SiW7EIAxE8/9f2mQJYG7MMZWd7nYtWUSMDZ4XDusciAhzLuwNXXtntNbgnMOcE+9Ya4GZUUpRTfrkW0Lqeu84UorYsrE21n5SIucM5wg5D9Q6UMuzStz3jRAi5txYa38u3HvjMMYiZ0YtjF4ZrXYVjTHauOYCjwlmmeA58Lou3MbpJTn1J3NXB4dzHrclLbitB1FArRVjjD9bAd57eCLEGNVWSkn3ZEpxYa1HDFExHa13UMiIISPXjv3HSZi01uEpI4Si2ppTNVlra7htQKCM0vjD9zjPE8z9i8MjiF3Jb02a5CJrrSJJMWr9+6fogTK+BPPCGAL5aRROYltijEcbc3/4it1H2+Cx8X4Mx8/PiRgLyMdPCkOZXBjGmEGU4F3QZB464Xle8JTgfISzwvnhe+RcYO6A12VhKahFgavvrVZcLw/zcrAkDQ2dGdw7cqkwN6nmwr/2C4oFuxSmq6N3AAAAAElFTkSuQmCC'); background-size: cover; display: block;"
+  ></span>
+  <picture>
+          <source
+              srcset="/static/4a4f7e951f831018f1ae85958da4ccbe/8ac56/pod1.webp 240w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/d3be9/pod1.webp 480w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/e46b2/pod1.webp 960w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/f992d/pod1.webp 1440w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/50d93/pod1.webp 1596w"
+              sizes="(max-width: 960px) 100vw, 960px"
+              type="image/webp"
+            />
+          <source
+            srcset="/static/4a4f7e951f831018f1ae85958da4ccbe/8ff5a/pod1.png 240w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/e85cb/pod1.png 480w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/d9199/pod1.png 960w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/07a9c/pod1.png 1440w,
+/static/4a4f7e951f831018f1ae85958da4ccbe/1acf3/pod1.png 1596w"
+            sizes="(max-width: 960px) 100vw, 960px"
+            type="image/png"
+          />
+          <img
+            class="gatsby-resp-image-image"
+            src="/static/4a4f7e951f831018f1ae85958da4ccbe/d9199/pod1.png"
+            alt="pod status"
+            title="pod status"
+            loading="lazy"
+            decoding="async"
+            style="width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;"
+          />
+        </picture>
+  </a>
+    </span></p>
+<ul>
+<li>17시 19분 경 한개 pod 이 CPU 쓰로틀링이 걸리며 성능 저하 발생</li>
+<li>한 pod 이 사용량이 높아졌지만 pods 간 평균 사용량이 오토 스케일링 생성 기준 임계치(1.5코어) 에 닿지 않아 수평 오토스케일링이 이뤄지지 않음</li>
+<li>문제 pod 인위적으로 삭제하고 replica pods 을 늘리고 나서야 지연 해소</li>
+</ul>
+<h2 id="2-장애-원인-분석" style="position:relative;"><a href="#2-%EC%9E%A5%EC%95%A0-%EC%9B%90%EC%9D%B8-%EB%B6%84%EC%84%9D" aria-label="2 장애 원인 분석 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>2. 장애 원인 분석</h2>
+<h3 id="q-어떤-상황에서-cpu-spike-와-성능-저하가-발생하거나-재현-되는가" style="position:relative;"><a href="#q-%EC%96%B4%EB%96%A4-%EC%83%81%ED%99%A9%EC%97%90%EC%84%9C-cpu-spike-%EC%99%80-%EC%84%B1%EB%8A%A5-%EC%A0%80%ED%95%98%EA%B0%80-%EB%B0%9C%EC%83%9D%ED%95%98%EA%B1%B0%EB%82%98-%EC%9E%AC%ED%98%84-%EB%90%98%EB%8A%94%EA%B0%80" aria-label="q 어떤 상황에서 cpu spike 와 성능 저하가 발생하거나 재현 되는가 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>Q. 어떤 상황에서 CPU spike 와 성능 저하가 발생하거나 재현 되는가?</h3>
+<p>쿼리하는 결과의 개수가 1000 개 이상인 요청이 여러 건 동시에 발생할때 CPU 사용량이 급격히 증가했으며, 결과 개수가 많으면 비교적 적은 처리량인 10~30TPS 수준에서도 CPU spike 가 발생 하였습니다. 일반적으로 처리하는 데이터 개수인 200-300 개 수준에서는 100TPS 이상 처리해도 CPU spike 가 발생하거나 응답 지연이 발생하지 않았습니다.</p>
+<h3 id="1-mongodb-쪽에서-slow-query-가-발생했는가" style="position:relative;"><a href="#1-mongodb-%EC%AA%BD%EC%97%90%EC%84%9C-slow-query-%EA%B0%80-%EB%B0%9C%EC%83%9D%ED%96%88%EB%8A%94%EA%B0%80" aria-label="1 mongodb 쪽에서 slow query 가 발생했는가 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>(1) MongoDB 쪽에서 Slow Query 가 발생했는가?</h3>
+<p>API 의 거의 모든 쿼리는 인덱스 기반 조회가 이루어지며 실제 쿼리 기록을 확인해 봐도 대부분 5ms 이내에 이루어졌고, 장애시점 DBA 및 모니터링 툴에서도 DB쪽에는 특별한 부하나 슬로우 쿼리가 없음을 명확히 확인했습니다.</p>
+<h3 id="2-비즈니스-로직이-비효율적인가" style="position:relative;"><a href="#2-%EB%B9%84%EC%A6%88%EB%8B%88%EC%8A%A4-%EB%A1%9C%EC%A7%81%EC%9D%B4-%EB%B9%84%ED%9A%A8%EC%9C%A8%EC%A0%81%EC%9D%B8%EA%B0%80" aria-label="2 비즈니스 로직이 비효율적인가 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>(2) 비즈니스 로직이 비효율적인가?</h3>
+<div class="gatsby-highlight" data-language="kotlin"><pre class="language-kotlin"><code class="language-kotlin"><span class="token keyword">val</span> stmtByDate <span class="token operator">=</span> stmtMongoRepository
+    <span class="token punctuation">.</span><span class="token function">findBySth</span><span class="token punctuation">(</span>sth<span class="token punctuation">)</span>
+    <span class="token punctuation">.</span><span class="token function">asSequence</span><span class="token punctuation">(</span><span class="token punctuation">)</span>
+    <span class="token punctuation">.</span><span class="token function">filter</span> <span class="token punctuation">{</span> it<span class="token punctuation">.</span><span class="token function">isXX</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">}</span>
+    <span class="token punctuation">.</span><span class="token function">filterNot</span> <span class="token punctuation">{</span> it<span class="token punctuation">.</span><span class="token function">isXX2</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">}</span>
+    <span class="token punctuation">.</span><span class="token function">groupBy</span> <span class="token punctuation">{</span> it<span class="token punctuation">.</span>date <span class="token punctuation">}</span></code></pre></div>
+<p>위에서 보는 것과 같이 비즈니스 로직은 MongoDB 에서 쿼리 결과를 받아온 뒤 단순 필터링 하고 Group By 하여 Map 을 생성하는 가벼운 로직입니다. 확실한 검증을 위하여 DB Read 하는 부분만 없애고 임시 객체 목록 여러개를 랜덤 생성하여 처리하도록 하는 테스트용 API를 추가하여 부하를 걸어 보았으나 1000TPS 가 넘게 처리가 가능했고 CPU spike 문제도 없었으며 응답도 빨랐습니다.</p>
+<h3 id="3-connection-pool-이-오픈되는데에-cpu-비용이-큰가" style="position:relative;"><a href="#3-connection-pool-%EC%9D%B4-%EC%98%A4%ED%94%88%EB%90%98%EB%8A%94%EB%8D%B0%EC%97%90-cpu-%EB%B9%84%EC%9A%A9%EC%9D%B4-%ED%81%B0%EA%B0%80" aria-label="3 connection pool 이 오픈되는데에 cpu 비용이 큰가 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>(3) Connection Pool 이 오픈되는데에 CPU 비용이 큰가?</h3>
+<p><span
+      class="gatsby-resp-image-wrapper"
+      style="position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; "
+    >
+      <a
+    class="gatsby-resp-image-link"
+    href="/static/7f6e30e862f87ac4e4f36c9d03f49fdd/985a9/oc1.png"
+    style="display: block"
+    target="_blank"
+    rel="noopener"
+  >
+    <span
+    class="gatsby-resp-image-background-image"
+    style="padding-bottom: 5%; position: relative; bottom: 0; left: 0; background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAABCAYAAADeko4lAAAACXBIWXMAABYlAAAWJQFJUiTwAAAATUlEQVQI1x3GMQ6AIBAAQX9jYUFhIhY2aCAiHp5e9P8/WROqmc6HxFKNKST8lplTwbmRoR+Ia+QSRetNyWf7o4aptcsh7DEjpfLa1/wBlgckrdrApuAAAAAASUVORK5CYII='); background-size: cover; display: block;"
+  ></span>
+  <picture>
+          <source
+              srcset="/static/7f6e30e862f87ac4e4f36c9d03f49fdd/8ac56/oc1.webp 240w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/d3be9/oc1.webp 480w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/e46b2/oc1.webp 960w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/f992d/oc1.webp 1440w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/ae1af/oc1.webp 1512w"
+              sizes="(max-width: 960px) 100vw, 960px"
+              type="image/webp"
+            />
+          <source
+            srcset="/static/7f6e30e862f87ac4e4f36c9d03f49fdd/8ff5a/oc1.png 240w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/e85cb/oc1.png 480w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/d9199/oc1.png 960w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/07a9c/oc1.png 1440w,
+/static/7f6e30e862f87ac4e4f36c9d03f49fdd/985a9/oc1.png 1512w"
+            sizes="(max-width: 960px) 100vw, 960px"
+            type="image/png"
+          />
+          <img
+            class="gatsby-resp-image-image"
+            src="/static/7f6e30e862f87ac4e4f36c9d03f49fdd/d9199/oc1.png"
+            alt="opend connection"
+            title="opend connection"
+            loading="lazy"
+            decoding="async"
+            style="width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;"
+          />
+        </picture>
+  </a>
+    </span></p>
+<p>로직 외에도 Connection Pool 이 생성될때 발생하는 CPU 부하인지도 의심해 보았는데요</p>
+<p>MongoDB 연결 시 커넥션풀의 최소 개수와 최대 개수 설정이 가능한데 <code class="language-text">minPoolSize</code> 와 <code class="language-text">maxPoolSize</code> 를 충분한 개수로 통일하여 어플리케이션 시작 이후에 커넥션 풀 생성이 이루어지지 않도록 설정하고 부하를 걸었을때도 설정 이전과 동일한 TPS 수준에서 CPU 100% 를 달성하는것을 확인할 수 있었습니다.</p>
+<h3 id="4-db-커서의-batchsize-문제인가" style="position:relative;"><a href="#4-db-%EC%BB%A4%EC%84%9C%EC%9D%98-batchsize-%EB%AC%B8%EC%A0%9C%EC%9D%B8%EA%B0%80" aria-label="4 db 커서의 batchsize 문제인가 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>(4) DB 커서의 batchSize 문제인가?</h3>
+<p>혹시 커서가 한꺼번에 가져오는 데이터가 적어 여러번 요청을 하여 문제가 발생 했는지 의심하여 커서의 배치 사이즈를 늘려서 부하 테스트를 해 보았으나 이 경우에도 커서 배치 크기와 상관없이 CPU Spike 가 발생 하였습니다.</p>
+<h3 id="5-spring-data-mongodb-라이브러리의-기본-역직렬화-컨버터의-성능-문제인가" style="position:relative;"><a href="#5-spring-data-mongodb-%EB%9D%BC%EC%9D%B4%EB%B8%8C%EB%9F%AC%EB%A6%AC%EC%9D%98-%EA%B8%B0%EB%B3%B8-%EC%97%AD%EC%A7%81%EB%A0%AC%ED%99%94-%EC%BB%A8%EB%B2%84%ED%84%B0%EC%9D%98-%EC%84%B1%EB%8A%A5-%EB%AC%B8%EC%A0%9C%EC%9D%B8%EA%B0%80" aria-label="5 spring data mongodb 라이브러리의 기본 역직렬화 컨버터의 성능 문제인가 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>(5) spring-data-mongodb 라이브러리의 기본 역직렬화 컨버터의 성능 문제인가?</h3>
+<p>spring-data-mongodb 의 내부 로직을 살펴보면 <code class="language-text">MappingMongoConverter</code> 를 이용하여 MongoDB Document를 POJO 에 매핑합니다.<br>
+이 과정에서 개발자가 Custom Converter 을 따로 구현해 두지 않았다면 기본 컨버터 구현체는 리플렉션을 사용하여 역직렬화를 진행합니다.</p>
+<p>런타임에 동적으로 타입을 분석하는 리플렉션 방식의 특성에 따라, 많은 데이터 목록의 역직렬화 시 성능 문제가 발생할 수 있다는 생각을 하였고 Thread Dump 와 프로파일러를 통해서 리플렉션을 이용한 역직렬화 부분에서 실제로 CPU 시간을 주로 점유하고 있음을 확인하였습니다.</p>
+<p>실제로 부하 상황시 가장 많은 스레드를 점유하고 있던 코드는 아래와 같이 리플렉션을 사용하여 프로퍼티를 매핑하는 부분이였습니다.</p>
+<div class="gatsby-highlight" data-language="text"><pre class="language-text"><code class="language-text">stackTrace:
+java.lang.Thread.State: RUNNABLE
+at app//kotlin.jvm.JvmClassMappingKt.getJavaObjectType(JvmClassMapping.kt:58)
+at app//kotlin.reflect.jvm.internal.KClassImpl.equals(KClassImpl.kt:293)
+at app//kotlin.jvm.internal.Intrinsics.areEqual(Intrinsics.java:167)
+at app//kotlin.reflect.jvm.internal.KFunctionImpl.equals(KFunctionImpl.kt:176)
+at app//kotlin.jvm.internal.Intrinsics.areEqual(Intrinsics.java:167)
+at app//kotlin.reflect.jvm.internal.KParameterImpl.equals(KParameterImpl.kt:67)
+... 
+app//org.springframework.data.mapping.model.ClassGeneratingEntityInstantiator.createInstance(ClassGeneratingEntityInstantiator.java:102)
+at app//org.springframework.data.mongodb.core.convert.MappingMongoConverter.read(MappingMongoConverter.java:523)
+at app//org.springframework.data.mongodb.core.convert.MappingMongoConverter.readDocument(MappingMongoConverter.java:491)
+at app//org.springframework.data.mongodb.core.convert.MappingMongoConverter.read(MappingMongoConverter.java:427)
+... 
+at com.sun.proxy.$Proxy256.findBySth(Unknown Source)
+at com.xx.yy.zz.api.aggs.AggregationService.aggregate(AggregationService.kt:20)</code></pre></div>
+<h2 id="3-확실히-리플렉션-방식-역직렬화의-성능-문제가-맞는가" style="position:relative;"><a href="#3-%ED%99%95%EC%8B%A4%ED%9E%88-%EB%A6%AC%ED%94%8C%EB%A0%89%EC%85%98-%EB%B0%A9%EC%8B%9D-%EC%97%AD%EC%A7%81%EB%A0%AC%ED%99%94%EC%9D%98-%EC%84%B1%EB%8A%A5-%EB%AC%B8%EC%A0%9C%EA%B0%80-%EB%A7%9E%EB%8A%94%EA%B0%80" aria-label="3 확실히 리플렉션 방식 역직렬화의 성능 문제가 맞는가 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>3. 확실히 리플렉션 방식 역직렬화의 성능 문제가 맞는가?</h2>
+<p>리플렉션은 비즈니스 로직의 유연성을 높이는 대신 컴파일 타임이 아닌 런타임에 동적으로 타입을 분석하여 클래스의 정보를 가져오게 되므로, JVM 최적화를 수행할 수 없다는 점에서 성능 문제가 발생할 수 있으나 어느정도 성능 문제가 발생할 수 있는지에 대한 정량적 정보는 없으므로 프로젝트 요구사항과 데이터 처리량에 따라 성능을 확인해야 했습니다.</p>
+<p>꽤 많은 참고 자료에서는 JIT compiler 의 바이트 코드 캐싱 등의 도움을 받아 거의 성능 차이가 없다는 식의 글들도 많이 있었고, 무엇보다 흔히 쓰이는 json 역직렬화 라이브러리 jackson 또한 기본적으로 리플렉션 방식을 사용하고 있어 성능은 전혀 걱정하지 않고 있었습니다.</p>
+<p>그러나 리플렉션 방식을 이용한 역직렬화 부분에서 많은 CPU 시간을 사용하고 있다는 것을 스레드 덤프와 프로파일링을 통해 확인하였기 때문에 nGrinder 을 이용하여 많은 요청량이 몰리는 상황에서 실제로 리플렉션 성능 저하가 발생하는지 확인해 보았습니다.</p>
+<h3 id="공통-상황" style="position:relative;"><a href="#%EA%B3%B5%ED%86%B5-%EC%83%81%ED%99%A9" aria-label="공통 상황 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>공통 상황</h3>
+<ul>
+<li>vuser 30명</li>
+<li>한 요청당 역직렬화 대상 데이터는 1000~1500개</li>
+<li>DB관련 설정 (Connection Pool 개수, 배치 사이즈 등) 은 모두 동일</li>
+<li>필터링, map 생성 등 역직렬화 외 모든 비즈니스 로직은 동일</li>
+</ul>
+<h3 id="테스트-결과" style="position:relative;"><a href="#%ED%85%8C%EC%8A%A4%ED%8A%B8-%EA%B2%B0%EA%B3%BC" aria-label="테스트 결과 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>테스트 결과</h3>
+<ol>
+<li>spring-data-mongodb + 기본 컨버터 (리플렉션 사용)</li>
+</ol>
+<div class="gatsby-highlight" data-language="kotlin"><pre class="language-kotlin"><code class="language-kotlin"><span class="token keyword">val</span> readData <span class="token operator">=</span> mongoRepository<span class="token punctuation">.</span><span class="token function">findSthByXX</span><span class="token punctuation">(</span><span class="token punctuation">)</span></code></pre></div>
+<p><span
+      class="gatsby-resp-image-wrapper"
+      style="position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; "
+    >
+      <a
+    class="gatsby-resp-image-link"
+    href="/static/ec2cf0bd4ceb784733f49a491353beb7/d5ef8/t1.png"
+    style="display: block"
+    target="_blank"
+    rel="noopener"
+  >
+    <span
+    class="gatsby-resp-image-background-image"
+    style="padding-bottom: 30.83333333333333%; position: relative; bottom: 0; left: 0; background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAGCAYAAADDl76dAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAyklEQVQY021QyW0EMQxz/32kkry3hRSR8aGbAT1HskAEEKRliKbcRAQRgapCZiKrtiZ671A1VAGZ9S8iCkDh9RX4+DQ0Drk72PZIsG5DmrkJMvQN4e+9CoWZYi5FY8JtWAVR3XybMrHZhBmTdrj1reXS95kcTky04zhA0OD4PhDmjyG/goZLODjgPuA2tg4f5yM+njvRiTbGAFPSYK2Fy+33T2MhfQA5H1SczHRbX+fwhcZ1Ocj6uzKLCVUmwhZMJ5zrk/Xku/fABT8artcUbwNoUgAAAABJRU5ErkJggg=='); background-size: cover; display: block;"
+  ></span>
+  <picture>
+          <source
+              srcset="/static/ec2cf0bd4ceb784733f49a491353beb7/8ac56/t1.webp 240w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/d3be9/t1.webp 480w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/e46b2/t1.webp 960w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/f992d/t1.webp 1440w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/882b9/t1.webp 1920w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/f20b7/t1.webp 2462w"
+              sizes="(max-width: 960px) 100vw, 960px"
+              type="image/webp"
+            />
+          <source
+            srcset="/static/ec2cf0bd4ceb784733f49a491353beb7/8ff5a/t1.png 240w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/e85cb/t1.png 480w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/d9199/t1.png 960w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/07a9c/t1.png 1440w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/29114/t1.png 1920w,
+/static/ec2cf0bd4ceb784733f49a491353beb7/d5ef8/t1.png 2462w"
+            sizes="(max-width: 960px) 100vw, 960px"
+            type="image/png"
+          />
+          <img
+            class="gatsby-resp-image-image"
+            src="/static/ec2cf0bd4ceb784733f49a491353beb7/d9199/t1.png"
+            alt="test 1"
+            title="test 1"
+            loading="lazy"
+            decoding="async"
+            style="width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;"
+          />
+        </picture>
+  </a>
+    </span></p>
+<ol>
+<li>spring-data-mongodb + 커스텀 컨버터 (리플렉션 미사용)</li>
+</ol>
+<div class="gatsby-highlight" data-language="kotlin"><pre class="language-kotlin"><code class="language-kotlin"><span class="token keyword">val</span> readData <span class="token operator">=</span> mongoRepository<span class="token punctuation">.</span><span class="token function">findSthByXX</span><span class="token punctuation">(</span><span class="token punctuation">)</span></code></pre></div>
+<div class="gatsby-highlight" data-language="kotlin"><pre class="language-kotlin"><code class="language-kotlin"><span class="token keyword">class</span> DocumentToPojoConverter <span class="token operator">:</span> Converter<span class="token operator">&lt;</span>Document<span class="token punctuation">,</span> Pojo<span class="token operator">></span> <span class="token punctuation">{</span>
+    <span class="token keyword">override</span> <span class="token keyword">fun</span> <span class="token function">convert</span><span class="token punctuation">(</span>source<span class="token operator">:</span> Document<span class="token punctuation">)</span><span class="token operator">:</span> Pojo <span class="token punctuation">{</span>
+        <span class="token keyword">return</span> <span class="token function">Pojo</span><span class="token punctuation">(</span>
+            id <span class="token operator">=</span> source<span class="token punctuation">.</span><span class="token function">getString</span><span class="token punctuation">(</span><span class="token string-literal singleline"><span class="token string">"_id"</span></span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            field1 <span class="token operator">=</span> source<span class="token punctuation">.</span><span class="token function">getString</span><span class="token punctuation">(</span><span class="token string-literal singleline"><span class="token string">"field1"</span></span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            <span class="token operator">..</span><span class="token punctuation">.</span>
+        <span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span></code></pre></div>
+<div class="gatsby-highlight" data-language="kotlin"><pre class="language-kotlin"><code class="language-kotlin"><span class="token annotation builtin">@Configuration</span>
+<span class="token keyword">class</span> <span class="token function">MongodbConfig</span><span class="token punctuation">(</span>
+    <span class="token annotation builtin">@Value</span><span class="token punctuation">(</span><span class="token string-literal singleline"><span class="token string">"\${mongodb.uri}"</span></span><span class="token punctuation">)</span> <span class="token keyword">private</span> <span class="token keyword">val</span> mongodbUri<span class="token operator">:</span> String<span class="token punctuation">,</span>
+    <span class="token annotation builtin">@Value</span><span class="token punctuation">(</span><span class="token string-literal singleline"><span class="token string">"\${mongodb.auto-index-creation:false}"</span></span><span class="token punctuation">)</span> <span class="token keyword">private</span> <span class="token keyword">val</span> autoIndexCreation<span class="token operator">:</span> Boolean<span class="token punctuation">,</span>
+<span class="token punctuation">)</span> <span class="token operator">:</span> <span class="token function">AbstractMongoClientConfiguration</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span>
+    <span class="token operator">..</span><span class="token punctuation">.</span>
+
+    <span class="token keyword">override</span> <span class="token keyword">fun</span> <span class="token function">configureConverters</span><span class="token punctuation">(</span>converterConfigurationAdapter<span class="token operator">:</span> MongoCustomConversions<span class="token punctuation">.</span>MongoConverterConfigurationAdapter<span class="token punctuation">)</span> <span class="token punctuation">{</span>
+        converterConfigurationAdapter<span class="token punctuation">.</span><span class="token function">registerConverters</span><span class="token punctuation">(</span>
+            <span class="token function">listOf</span><span class="token punctuation">(</span>
+                <span class="token function">DocumentToPojoConverter</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+            <span class="token punctuation">)</span>
+        <span class="token punctuation">)</span>
+    <span class="token punctuation">}</span>
+<span class="token punctuation">}</span></code></pre></div>
+<p><span
+      class="gatsby-resp-image-wrapper"
+      style="position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; "
+    >
+      <a
+    class="gatsby-resp-image-link"
+    href="/static/2fdc5fbb963a9fa66f605585e74dd427/cd78c/t2.png"
+    style="display: block"
+    target="_blank"
+    rel="noopener"
+  >
+    <span
+    class="gatsby-resp-image-background-image"
+    style="padding-bottom: 30.83333333333333%; position: relative; bottom: 0; left: 0; background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAGCAYAAADDl76dAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAwUlEQVQY03WQiw3DIAxE2X+iDlGpE3SJAAH84aozSRpVaqTTGc48TFLvHWaGOSfcZ/ipbcsYY2BOROZHz6+Aiefb8Xg5UmttAQFohMwXkPumDX5I5VtT98yNGki1VnBKAkrd4eYHk7d7NE/bIVLQeg5XqeESftZUQyqlIOcckJIz3OwCckKRHWMUqFaY7gF35cWrPtd0047E6VQ1AHw+/Q5czfU6/F91AeOQr2eKyAXkFxOO9e8o1nyWyLnXr2zlHR95tNeGKa2RJgAAAABJRU5ErkJggg=='); background-size: cover; display: block;"
+  ></span>
+  <picture>
+          <source
+              srcset="/static/2fdc5fbb963a9fa66f605585e74dd427/8ac56/t2.webp 240w,
+/static/2fdc5fbb963a9fa66f605585e74dd427/d3be9/t2.webp 480w,
+/static/2fdc5fbb963a9fa66f605585e74dd427/e46b2/t2.webp 960w,
+/static/2fdc5fbb963a9fa66f605585e74dd427/5b1dd/t2.webp 1236w"
+              sizes="(max-width: 960px) 100vw, 960px"
+              type="image/webp"
+            />
+          <source
+            srcset="/static/2fdc5fbb963a9fa66f605585e74dd427/8ff5a/t2.png 240w,
+/static/2fdc5fbb963a9fa66f605585e74dd427/e85cb/t2.png 480w,
+/static/2fdc5fbb963a9fa66f605585e74dd427/d9199/t2.png 960w,
+/static/2fdc5fbb963a9fa66f605585e74dd427/cd78c/t2.png 1236w"
+            sizes="(max-width: 960px) 100vw, 960px"
+            type="image/png"
+          />
+          <img
+            class="gatsby-resp-image-image"
+            src="/static/2fdc5fbb963a9fa66f605585e74dd427/d9199/t2.png"
+            alt="test 2"
+            title="test 2"
+            loading="lazy"
+            decoding="async"
+            style="width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;"
+          />
+        </picture>
+  </a>
+    </span></p>
+<ol>
+<li>mongoTemplate + Jackson (리플렉션 사용)</li>
+</ol>
+<div class="gatsby-highlight" data-language="kotlin"><pre class="language-kotlin"><code class="language-kotlin"><span class="token keyword">val</span> readData <span class="token operator">=</span> collection<span class="token punctuation">.</span><span class="token function">find</span><span class="token punctuation">(</span>query<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">map</span> <span class="token punctuation">{</span> objectMapper<span class="token punctuation">.</span><span class="token function">readValue</span><span class="token punctuation">(</span>it<span class="token punctuation">.</span><span class="token function">toJson</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">,</span> Pojo<span class="token operator">::</span><span class="token keyword">class</span><span class="token punctuation">.</span>java<span class="token punctuation">)</span><span class="token punctuation">}</span></code></pre></div>
+<p><span
+      class="gatsby-resp-image-wrapper"
+      style="position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; "
+    >
+      <a
+    class="gatsby-resp-image-link"
+    href="/static/2c7067cd96d1d8b74ab299624f9b11e2/d5ef8/t3.png"
+    style="display: block"
+    target="_blank"
+    rel="noopener"
+  >
+    <span
+    class="gatsby-resp-image-background-image"
+    style="padding-bottom: 30.41666666666667%; position: relative; bottom: 0; left: 0; background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAGCAYAAADDl76dAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAq0lEQVQY042Q3Q3DMAiEvf8gXaRPnaFbRDFg/q7CTVJFyUORTge2+LBpLIKIQGZetCwLVBUVd/eliKxbvN6Ox1PR1nWFmyETGOan5hrkJjBl6BRNP9eEMQhuBISgEdXBmADqhIw4oO4OqwatoR26uVmfPnP95SwdjZlR0AIIyy0wnJB/yI3Reu/HCwu+0Y4vp/NfMOzAWvq+MxGZvoeZYch3b7UnvYhPtangA0hp11a7a1fNAAAAAElFTkSuQmCC'); background-size: cover; display: block;"
+  ></span>
+  <picture>
+          <source
+              srcset="/static/2c7067cd96d1d8b74ab299624f9b11e2/8ac56/t3.webp 240w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/d3be9/t3.webp 480w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/e46b2/t3.webp 960w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/f992d/t3.webp 1440w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/882b9/t3.webp 1920w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/f20b7/t3.webp 2462w"
+              sizes="(max-width: 960px) 100vw, 960px"
+              type="image/webp"
+            />
+          <source
+            srcset="/static/2c7067cd96d1d8b74ab299624f9b11e2/8ff5a/t3.png 240w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/e85cb/t3.png 480w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/d9199/t3.png 960w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/07a9c/t3.png 1440w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/29114/t3.png 1920w,
+/static/2c7067cd96d1d8b74ab299624f9b11e2/d5ef8/t3.png 2462w"
+            sizes="(max-width: 960px) 100vw, 960px"
+            type="image/png"
+          />
+          <img
+            class="gatsby-resp-image-image"
+            src="/static/2c7067cd96d1d8b74ab299624f9b11e2/d9199/t3.png"
+            alt="test 3"
+            title="test 3"
+            loading="lazy"
+            decoding="async"
+            style="width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;"
+          />
+        </picture>
+  </a>
+    </span></p>
+<ol>
+<li>mongoTemplate + 직접 매핑 (리플렉션 미사용)</li>
+</ol>
+<div class="gatsby-highlight" data-language="kotlin"><pre class="language-kotlin"><code class="language-kotlin"><span class="token keyword">val</span> readData <span class="token operator">=</span> collection<span class="token punctuation">.</span><span class="token function">find</span><span class="token punctuation">(</span>query<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">map</span> <span class="token punctuation">{</span> it<span class="token punctuation">.</span><span class="token function">toPojo</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">}</span></code></pre></div>
+<div class="gatsby-highlight" data-language="kotlin"><pre class="language-kotlin"><code class="language-kotlin"><span class="token keyword">fun</span> Document<span class="token punctuation">.</span><span class="token function">toPojo</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">:</span> Pojo <span class="token punctuation">{</span>
+    <span class="token keyword">return</span> <span class="token function">Pojo</span><span class="token punctuation">(</span>
+        id <span class="token operator">=</span> <span class="token function">getString</span><span class="token punctuation">(</span><span class="token string-literal singleline"><span class="token string">"_id"</span></span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        field1 <span class="token operator">=</span> <span class="token function">getString</span><span class="token punctuation">(</span><span class="token string-literal singleline"><span class="token string">"field1"</span></span><span class="token punctuation">)</span><span class="token punctuation">,</span>
+        <span class="token operator">..</span><span class="token operator">..</span>
+    <span class="token punctuation">)</span>
+<span class="token punctuation">}</span></code></pre></div>
+<p><span
+      class="gatsby-resp-image-wrapper"
+      style="position: relative; display: block; margin-left: auto; margin-right: auto; max-width: 960px; "
+    >
+      <a
+    class="gatsby-resp-image-link"
+    href="/static/77fd49bed915fcbcd4b17216cc6a989f/0330c/t4.png"
+    style="display: block"
+    target="_blank"
+    rel="noopener"
+  >
+    <span
+    class="gatsby-resp-image-background-image"
+    style="padding-bottom: 30.83333333333333%; position: relative; bottom: 0; left: 0; background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAGCAYAAADDl76dAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAtUlEQVQY032Rja3CMAyEs/8yzMEKjJEG1/+HnLTlPSGwdDrbST7ZStt3RkQgMy8/823bYGZH/V1A4v5w3O6KNsaAuyMTUA9UnFARgSnD7S2zz7okwiAWNGY+gAlmWTCsqL7IgOmYrrpk+jx85dNtwG1H672jpizQ1jsy1pRFLaAbIZ0u/6WaeK6sqhNIRP9WjvDrMv48RHzC6jyc0U7YWpmnn1EfolwrEUyWdOroTe3rTAnChBdDlddO2+49QAAAAABJRU5ErkJggg=='); background-size: cover; display: block;"
+  ></span>
+  <picture>
+          <source
+              srcset="/static/77fd49bed915fcbcd4b17216cc6a989f/8ac56/t4.webp 240w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/d3be9/t4.webp 480w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/e46b2/t4.webp 960w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/f992d/t4.webp 1440w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/882b9/t4.webp 1920w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/eb0ee/t4.webp 2458w"
+              sizes="(max-width: 960px) 100vw, 960px"
+              type="image/webp"
+            />
+          <source
+            srcset="/static/77fd49bed915fcbcd4b17216cc6a989f/8ff5a/t4.png 240w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/e85cb/t4.png 480w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/d9199/t4.png 960w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/07a9c/t4.png 1440w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/29114/t4.png 1920w,
+/static/77fd49bed915fcbcd4b17216cc6a989f/0330c/t4.png 2458w"
+            sizes="(max-width: 960px) 100vw, 960px"
+            type="image/png"
+          />
+          <img
+            class="gatsby-resp-image-image"
+            src="/static/77fd49bed915fcbcd4b17216cc6a989f/d9199/t4.png"
+            alt="test 4"
+            title="test 4"
+            loading="lazy"
+            decoding="async"
+            style="width:100%;height:100%;margin:0;vertical-align:middle;position:absolute;top:0;left:0;"
+          />
+        </picture>
+  </a>
+    </span></p>
+<h3 id="테스트-결과-요약" style="position:relative;"><a href="#%ED%85%8C%EC%8A%A4%ED%8A%B8-%EA%B2%B0%EA%B3%BC-%EC%9A%94%EC%95%BD" aria-label="테스트 결과 요약 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>테스트 결과 요약</h3>
+<table>
+<thead>
+<tr>
+<th>순위</th>
+<th>테스트 케이스</th>
+<th>평균 TPS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>mongoTemplate + 직접 매핑 (리플렉션 미사용)</td>
+<td>187</td>
+</tr>
+<tr>
+<td>2</td>
+<td>spring-data-mongodb + 커스텀 컨버터 (리플렉션 미사용)</td>
+<td>103</td>
+</tr>
+<tr>
+<td>3</td>
+<td>mongoTemplate + Jackson (리플렉션 사용)</td>
+<td>44</td>
+</tr>
+<tr>
+<td>4</td>
+<td>spring-data-mongodb + 기본 컨버터 (리플렉션 사용)</td>
+<td>18</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>리플렉션을 사용하지 않은 케이스가 성능이 더 우수</li>
+<li>spring-data-mongodb 의 오버헤드가 없는 mongoTemplate 직접 사용이 성능이 더 우수</li>
+<li>필드(프로퍼티) 수가 많을수록 리플렉션을 사용할 시 성능 저하가 더 심함</li>
+</ul>
+<h2 id="3-결론" style="position:relative;"><a href="#3-%EA%B2%B0%EB%A1%A0" aria-label="3 결론 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>3. 결론</h2>
+<p>저는 위의 케이스에서 그나마 코드 변경이 적고 성능도 어느정도 나오는 <strong>2번 방법 (spring-data-mongodb + 커스텀 컨버터)</strong> 을 이용하여 다량 조회 성능을 개선하기로 결정 하였는데요</p>
+<p>리플렉션은 어노테이션 처리, Jackson 과 같은 각종 라이브러리에서 널리 쓰이는 API 로 런타임에 타입에 따라 유연하게 클래스 정보를 다룰 수 있고 JIT Compiler 의 캐싱 등으로 상황에 따라서는 성능과 유연성 두마리 토끼를 잡을 수 있는 유용한 방식이기도 하지만 성능이 중요한 상황에서는 리플렉션의 사용을 진지하게 검토해 보고 고민해 보아야 할 것 같습니다.</p></div></div></div><div class="Post-module--footer--f8705"><div class="Meta-module--meta--dae0a"><p class="Meta-module--date--4d30d">Published<!-- --> <!-- -->Apr 5, 2023</p></div><div class="Tags-module--tags--18589"><ul class="Tags-module--list--82ae6"><li class="Tags-module--item--52015"><a class="Button-module--button--b1113" href="/tag/devlog/">devlog</a></li><li class="Tags-module--item--52015"><a class="Button-module--button--b1113" href="/tag/--/">역직렬화 리플렉션 성능</a></li><li class="Tags-module--item--52015"><a class="Button-module--button--b1113" href="/tag/--/">몽고디비 역직렬화 성능</a></li></ul></div><div class="Author-module--author--1c58d"><p class="Author-module--bio--08950">네이버 파이낸셜 백엔드 개발자<a class="Author-module--instagram--d262c" href="https://www.instagram.com/donsworkout" rel="noopener noreferrer" target="_blank"><strong>donsdev</strong> on Instagram</a></p></div></div><div class="Post-module--comments--d3b99"></div></div></div></div><div id="gatsby-announcer" style="position:absolute;top:0;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0, 0, 0, 0);white-space:nowrap;border:0" aria-live="assertive" aria-atomic="true"></div></div><script id="gatsby-script-loader">/*<![CDATA[*/window.pagePath="/posts/reflection-performance";window.___webpackCompilationHash="b87b98b48f1e44413f52";/*]]>*/</script><script id="gatsby-chunk-mapping">/*<![CDATA[*/window.___chunkMapping={"polyfill":["/polyfill-a30bc9584b32c7353f2d.js"],"app":["/app-920a047be3d4bbdf9445.js"],"component---cache-caches-gatsby-plugin-offline-app-shell-js":["/component---cache-caches-gatsby-plugin-offline-app-shell-js-0c915c7b1bdb5eac4fdf.js"],"component---src-templates-categories-template-categories-template-tsx":["/component---src-templates-categories-template-categories-template-tsx-4de380c8df800125addd.js"],"component---src-templates-category-template-category-template-tsx":["/component---src-templates-category-template-category-template-tsx-266c3a7e89156b606f70.js"],"component---src-templates-index-template-index-template-tsx":["/component---src-templates-index-template-index-template-tsx-60b1624d03341626b14a.js"],"component---src-templates-not-found-template-not-found-template-tsx":["/component---src-templates-not-found-template-not-found-template-tsx-93b311e516e94581dc39.js"],"component---src-templates-page-template-page-template-tsx":["/component---src-templates-page-template-page-template-tsx-d3ad994a8a41ac784b7d.js"],"component---src-templates-post-template-post-template-tsx":["/component---src-templates-post-template-post-template-tsx-cf6c4465d15fc030911c.js"],"component---src-templates-tag-template-tag-template-tsx":["/component---src-templates-tag-template-tag-template-tsx-cf6fabef4b1fb44d3578.js"],"component---src-templates-tags-template-tags-template-tsx":["/component---src-templates-tags-template-tags-template-tsx-e7d24166900427d2587f.js"]};/*]]>*/</script><script src="/polyfill-a30bc9584b32c7353f2d.js" nomodule=""></script><script src="/app-920a047be3d4bbdf9445.js" async=""></script><script src="/b3a13d7d-bd22fffd62e1db6d64ba.js" async=""></script><script src="/framework-745d5d28c0250a1a333b.js" async=""></script><script src="/webpack-runtime-2104d59385ef2e0677e1.js" async=""></script></body></html>
