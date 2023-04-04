@@ -93,7 +93,6 @@ export default {
         ],
       },
     },
-    "gatsby-plugin-netlify-cms-paths",
     {
       resolve: "gatsby-transformer-remark",
       options: {
@@ -109,7 +108,6 @@ export default {
             resolve: "gatsby-remark-responsive-iframe",
             options: { wrapperStyle: "margin-bottom: 1.0725rem" },
           },
-          "gatsby-plugin-netlify-cms-paths",
           "gatsby-remark-autolink-headers",
           "gatsby-remark-prismjs",
           "gatsby-remark-copy-linked-files",
