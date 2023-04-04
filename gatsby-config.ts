@@ -93,9 +93,7 @@ export default {
         ],
       },
     },
-    {
-      resolve: "gatsby-plugin-netlify-cms-paths",
-    },
+    "gatsby-plugin-netlify-cms-paths",
     {
       resolve: "gatsby-transformer-remark",
       options: {
