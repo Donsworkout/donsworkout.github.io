@@ -1,5 +1,11 @@
 @import "src/assets/scss/variables";
 @import "src/assets/scss/mixins";
+@font-face {
+  font-family: D2Coding;
+  font-style: normal;
+  font-weight: normal;
+  src: url("https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_three@1.0/D2Coding.woff") format("woff");
+}
 
 .post {
   .content {
@@ -28,6 +34,11 @@
     .buttonArticles {
       @include margin(0, 0.5, 0, 0);
     }
+  }
+
+  code {
+    font-family: D2Coding;
+    font-size: 0.9rem;
   }
 }
 

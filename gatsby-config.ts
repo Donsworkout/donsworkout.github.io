@@ -94,6 +94,9 @@ export default {
       },
     },
     {
+      resolve: "gatsby-plugin-netlify-cms-paths",
+    },
+    {
       resolve: "gatsby-transformer-remark",
       options: {
         plugins: [
@@ -108,6 +111,7 @@ export default {
             resolve: "gatsby-remark-responsive-iframe",
             options: { wrapperStyle: "margin-bottom: 1.0725rem" },
           },
+          "gatsby-plugin-netlify-cms-paths",
           "gatsby-remark-autolink-headers",
           "gatsby-remark-prismjs",
           "gatsby-remark-copy-linked-files",
@@ -157,7 +161,7 @@ export default {
         short_name: config.title,
         theme_color: "hsl(31, 92%, 62%)",
         background_color: "hsl(0, 0%, 100%)",
-        icon: "content/photo.jpg",
+        icon: "content/profile_photo.jpg",
         display: "standalone",
         start_url: "/",
       },

@@ -1,9 +1,9 @@
 {
-  "title": "Blog by John Doe",
-  "url": "https://lumen.alxshelepenok.com",
-  "subtitle": "Pellentesque odio nisi, euismod in, pharetra a, ultricies in, diam. Sed arcu.",
-  "copyright": "© All rights reserved.",
-  "googleAnalyticsId": "UA-73379983-2",
+  "title": "Donsdev blog",
+  "url": "https://donsworkout.github.io",
+  "subtitle": "네이버 파이낸셜 백엔드 개발자",
+  "copyright": "© 2023 donsdev all rights reserved.",
+  "googleAnalyticsId": "G-9MM072ZW77",
   "disqusShortname": "",
   "postsLimit": 4,
   "pathPrefix": "/",
@@ -15,26 +15,22 @@
     {
       "label": "About me",
       "path": "/pages/about"
-    },
-    {
-      "label": "Contact me",
-      "path": "/pages/contacts"
     }
   ],
   "author": {
-    "name": "John Doe",
-    "photo": "/photo.jpg",
-    "bio": "Pellentesque odio nisi, euismod in, pharetra a, ultricies in, diam. Sed arcu.",
+    "name": "donsdev",
+    "photo": "profile_photo.jpg",
+    "bio": "네이버 파이낸셜 백엔드 개발자",
     "contacts": {
       "rss": "",
-      "email": "",
-      "github": "#",
-      "facebook": "#",
-      "telegram": "#",
-      "twitter": "#",
-      "linkedin": "#",
-      "instagram": "#",
-      "mastodon": "#",
+      "email": "donsdevko@gmail.com",
+      "github": "Donsworkout",
+      "linkedin": "do-hyun-kim-2574551ab",
+      "instagram": "donsworkout",
+      "mastodon": "",
+      "twitter": "",
+      "telegram": "",
+      "facebook": "",
       "line": "",
       "weibo": "",
       "gitlab": "",
