@@ -3,7 +3,7 @@ title: Chapter 1. 리액티브 시스템과 리액티브 프로그래밍
 date: "2023-05-07T23:46:37.121Z"
 template: "post"
 draft: false
-slug: "/posts/donsdev-new-blog-open"
+slug: "/posts/reactive-ch1"
 category: "devlog"
 tags:
   - "스프링으로 시작하는 리액티브 프로그래밍"
