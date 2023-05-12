@@ -9,7 +9,7 @@ tags:
   - "스프링으로 시작하는 리액티브 프로그래밍"
   - "리액티브 프로그래밍"
 description: "책 읽은거 정리하기, 스프링으로 시작하는 리액티브 프로그래밍 "
-socialImage: "./media/reactive-traits-ko.svg"
+socialImage: "./media/reactive-str.png"
 ---
 
 ## 2. 리액티브 스트림즈
@@ -17,6 +17,9 @@ socialImage: "./media/reactive-traits-ko.svg"
 리액티브 코드를 작성하기 위한 표준 사양입니다. 데이터 스트림을 Non-blocking + Async 하게 처리하기 위하여 정의해 놓은 것입니다. 구현체로는 RxJava, Reactor, Akka Streams, Java 9 Flow API 등이 있습니다.
 
 ### 2.2 리액티브 스트림즈 구성요소 
+
+![reactive-streams](./media/reactive_str.png)
+
 리액티브 스트림즈를 통해 구현해야 하는 API 컴포넌트 목록은 아래와 같습니다.
 
 1. Publisher : 데이터를 생성하고 Publish 하는 역할
