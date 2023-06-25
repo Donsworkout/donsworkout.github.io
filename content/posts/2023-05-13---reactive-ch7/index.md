@@ -9,7 +9,6 @@ tags:
   - "스프링으로 시작하는 리액티브 프로그래밍"
   - "리액티브 프로그래밍"
 description: "책 읽은거 정리하기, 스프링으로 시작하는 리액티브 프로그래밍 "
-socialImage: "./media/marv1.jpeg"
 ---
 
 ## 7. Cold Sequnce 와 Hot Sequence
