@@ -89,9 +89,27 @@
 <p>R2DBC 기반 Repository 를 더 쉽게 구현하게 해주는 Spring Data Famlily 프로젝트 일부</p>
 <p>JPA 에서 제공하는 캐싱, lazy loading 등 기타 ORM 에서 가지고 있는 특징들이 제거됨</p>
 <h3 id="183-spring-data-r2dbc-설정" style="position:relative;"><a href="#183-spring-data-r2dbc-%EC%84%A4%EC%A0%95" aria-label="183 spring data r2dbc 설정 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>18.3 Spring Data R2DBC 설정</h3>
-<ul>
-<li>책 참조</li>
-</ul>
+<ol>
+<li>build.gradle 설정</li>
+</ol>
+<div class="gatsby-highlight" data-language="gradle"><pre class="language-gradle"><code class="language-gradle"><span class="token keyword">dependencies</span> <span class="token punctuation">{</span>
+    <span class="token keyword">implementation</span> <span class="token string">'org.springframework.boot:spring-boot-starter-data-r2dbc'</span>
+    runtimeOnly <span class="token string">'io.r2dbc:r2dbc-h2'</span>
+<span class="token punctuation">}</span></code></pre></div>
+<ol start="2">
+<li>테이블 스키마 정의</li>
+</ol>
+<p>Spring data R2DBC 는 Spring Data JPA 처럼 엔티티 매핑정보로 테이블 자동생성 기능이 없어서 직접 테이블을 생성해야 함</p>
+<ol start="3">
+<li>
+<p>application.yml 파일 설정</p>
+</li>
+<li>
+<p>R2DBC Repository 의 Auditing 기능 활성화</p>
+</li>
+</ol>
+<div class="gatsby-highlight" data-language="java"><pre class="language-java"><code class="language-java"><span class="token annotation punctuation">@EnableR2dbcAuditing</span>
+<span class="token annotation punctuation">@EnableR2dbcRepositories</span></code></pre></div>
 <h3 id="184-spring-data-r2dbc-에서의-도메인-엔티티-클래스-매핑" style="position:relative;"><a href="#184-spring-data-r2dbc-%EC%97%90%EC%84%9C%EC%9D%98-%EB%8F%84%EB%A9%94%EC%9D%B8-%EC%97%94%ED%8B%B0%ED%8B%B0-%ED%81%B4%EB%9E%98%EC%8A%A4-%EB%A7%A4%ED%95%91" aria-label="184 spring data r2dbc 에서의 도메인 엔티티 클래스 매핑 permalink" class="anchor before"><svg aria-hidden="true" focusable="false" height="16" version="1.1" viewBox="0 0 16 16" width="16"><path fill-rule="evenodd" d="M4 9h1v1H4c-1.5 0-3-1.69-3-3.5S2.55 3 4 3h4c1.45 0 3 1.69 3 3.5 0 1.41-.91 2.72-2 3.25V8.59c.58-.45 1-1.27 1-2.09C10 5.22 8.98 4 8 4H4c-.98 0-2 1.22-2 2.5S3 9 4 9zm9-3h-1v1h1c1 0 2 1.22 2 2.5S13.98 12 13 12H9c-.98 0-2-1.22-2-2.5 0-.83.42-1.64 1-2.09V6.25c-1.09.53-2 1.84-2 3.25C6 11.31 7.55 13 9 13h4c1.45 0 3-1.69 3-3.5S14.5 6 13 6z"></path></svg></a>18.4 Spring Data R2DBC 에서의 도메인 엔티티 클래스 매핑</h3>
 <p>[코드 18.2]</p>
 <div class="gatsby-highlight" data-language="java"><pre class="language-java"><code class="language-java"><span class="token annotation punctuation">@Getter</span>
