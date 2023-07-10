@@ -32,6 +32,9 @@ public interface HandlerFunction<T extends ServerResponse> {
 #### ServerResponse
 - Http Response 표현 
 
+[참고]  
+HandlerFunction 은 RouterFunction 을 통해 요청이 라우팅된 이후에 동작함
+
 ### 17.2 request 라우팅을 위한 RouterFunction
 
 - RouterFunction 은 요청을 해당 HandlerFunction 으로 라우팅
@@ -47,7 +50,8 @@ public interface RouterFunction<T extends ServerResponse> {
 }
 ~~~
 
-- route 메서드 하나만 있음
+- RouterFunction 인터페이스는 route() 메서드 하나만 정의된 함수형 인터페이스
+- route() 메서드에서 파라미터로 전달받은 request 에 매치되는 핸들러 함수를 리턴해줌
 - 파라미터로 ServerRequest 하나만 받고, 응답은 매치되는 HandlerFunction 리턴 
 
 [코드 17.3]
@@ -67,6 +71,8 @@ public class BookRouter {
 ~~~
 
 - 각 url 패턴에 맞는 HandlerFunction 등록
+
+### HandlerFunction 예제 
 
 [코드 17.4]
 ~~~java
@@ -147,9 +153,10 @@ public class BookHandler {
 
 ### 17.3 함수형 엔드포인트에서 request body 유효성 검증 
 
-- 유효성 검증 필요시 Spring Validator 인터페이스를 구현한 커스텀 밸리데이터를 이용해 request body 유효성 검증 간으 
+- 유효성 검증 필요시 Spring Validator 인터페이스를 구현한 커스텀 밸리데이터를 이용해 request body 유효성 검증 가능  
 
-[코드 17.5]
+[코드 17.5]  
+도서 정보 저장을 위한 커스텀 밸리데이터 
 ~~~java
 @Component("bookValidatorV2")
 public class BookValidator implements Validator {
@@ -170,6 +177,10 @@ public class BookValidator implements Validator {
     }
 }
 ~~~
+
+- Spring 에서 지원하는 Validator 인터페이스를 구현한 방식 
+
+#### BookValidator 을 핸들러 함수에 적용한 예시 
 
 [코드 17.6]
 ~~~java
@@ -325,6 +336,9 @@ public class BookValidator<T> {
     }
 }
 ~~~
+
+
+#### javax 표준 Validator 유효성 검증이 적용된 핸들러  
 
 [코드 17.9]
 ~~~java

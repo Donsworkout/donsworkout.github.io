@@ -99,6 +99,7 @@ public class BookController {
 
 - 코드상으로는 MVC 와 Mono 타입인 차이밖에 없음 
 - 애너테이션 기반 컨트롤러는 기존 Spring MVC 구조와 별 차이 없음
+- 그래도 논블로킹을 지원하는 리액티브 핸들러임 
 
 [코드 16.3]
 ~~~java
@@ -146,7 +147,7 @@ public interface BookMapper {
 }
 ~~~
 
-- DTO 변환 
+- DTO 클래스 객체를 Book 엔티티 클래스의 객체로 변환해 주는 BookMapper 코드
 
 #### 코드 16.2 에서 블로킹 요소 제거한 컨트롤러 코드
 
@@ -185,6 +186,8 @@ public class BookController {
     }
 }
 ~~~
+
+- 근데 16.2 도 논블로킹 아닌가..?
 
 #### 코드 16.3 에서 블로킹 요소 제거한 서비스 코드
 
@@ -227,4 +230,5 @@ public class BookService {
 }
 ~~~ 
 
+- 근데 16.3 도 논블로킹 아닌가..?
 - 파라미터도 Mono 로 받아서 flatMap 등 오퍼레이팅 하는 것 을 알 수 있음

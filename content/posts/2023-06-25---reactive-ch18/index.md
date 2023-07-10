@@ -25,7 +25,24 @@ JPA 에서 제공하는 캐싱, lazy loading 등 기타 ORM 에서 가지고 있
 
 ### 18.3 Spring Data R2DBC 설정 
 
-- 책 참조 
+1. build.gradle 설정
+~~~gradle
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'
+    runtimeOnly 'io.r2dbc:r2dbc-h2'
+}
+~~~ 
+
+2. 테이블 스키마 정의  
+Spring data R2DBC 는 Spring Data JPA 처럼 엔티티 매핑정보로 테이블 자동생성 기능이 없어서 직접 테이블을 생성해야 함 
+
+3. application.yml 파일 설정 
+
+4. R2DBC Repository 의 Auditing 기능 활성화
+~~~java
+@EnableR2dbcAuditing
+@EnableR2dbcRepositories
+~~~
 
 ### 18.4 Spring Data R2DBC 에서의 도메인 엔티티 클래스 매핑 
 
